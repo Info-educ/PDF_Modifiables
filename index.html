@@ -1,52 +1,46 @@
-index.html!DOCTYPE html
-html lang="fr"
-head
-  meta charset="UTF-8"
-  meta name="viewport" content="width=device-width, initial-scale=1.0"
-  titlePDF Modifiablestitle
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Modifiables</title>
 
-  link rel="stylesheet" href="css/styles.css"
+<link rel="stylesheet" href="css/styles.css">
 
-  script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"script
-  script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"script
-  script
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  script
-head
-body
+<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+</head>
+<body>
 
-  !-- Toolbar --
-  div class="toolbar"
-    button id="btn-open"Ouvrir un PDFbutton
-    input type="file" id="file-input" accept="application/pdf" hidden
+<div class="toolbar">
+  <button id="btn-open">Ouvrir un PDF</button>
+  <input type="file" id="file-input" accept="application/pdf" hidden>
 
-    button id="add-text"+ Textebutton
-    button id="add-date"+ Datebutton
-    button id="add-checkbox"+ Casebutton
-    button id="add-select"+ Listebutton
+  <button id="add-text" class="add-field" data-type="text">+ Texte</button>
+  <button id="add-date" class="add-field" data-type="date">+ Date</button>
+  <button id="add-checkbox" class="add-field" data-type="checkbox">+ Case</button>
+  <button id="add-select" class="add-field" data-type="select">+ Liste</button>
 
-    button id="btn-export"Exporterbutton
-  div
+  <button id="btn-export">Exporter</button>
+</div>
 
-  !-- Zone principale --
-  div style="display:flex;height:calc(100vh - 60px);"
-    
-    !-- Miniatures --
-    div id="thumbs" style="width:120px;overflow:auto;border-right:1px solid #ddd;"div
+<div id="drop">Déposez un PDF ici</div>
 
-    !-- PDF --
-    div style="flex:1;overflow:auto;padding:20px;text-align:center;"
-      div id="page-wrap"
-        canvas id="pdf-canvas"canvas
-        div id="overlay"div
-      div
-    div
+<div style="display:flex;height:calc(100vh - 60px);">
+  <div id="thumbs" style="width:120px;overflow:auto;border-right:1px solid #ddd;"></div>
+  <div style="flex:1;overflow:auto;padding:20px;text-align:center;">
+    <div id="page-wrap">
+      <canvas id="pdf-canvas"></canvas>
+      <div id="overlay"></div>
+    </div>
+  </div>
+  <div id="props" style="width:280px;overflow:auto;border-left:1px solid #ddd;padding:16px;"></div>
+</div>
 
-    !-- Propriétés --
-    div id="props" style="width:280px;overflow:auto;border-left:1px solid #ddd;padding:16px;"div
-  div
-
-  script src="js/app.js"script
-body
-html
+<script src="js/app.js"></script>
+</body>
+</html>
