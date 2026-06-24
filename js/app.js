@@ -364,96 +364,142 @@ function addAA(doc, tf, trigger, jsCode) {
 }
 
 function addDatePickerAction(doc, tf, fontSize) {
-  // Masque de saisie : "jj/mm/aaaa"
-  // Les positions 0-1 = jour, 2 = '/', 3-4 = mois, 5 = '/', 6-9 = année
-  // L'utilisateur ne peut taper que des chiffres ; les '/' sont insérés automatiquement.
-  // La valeur initiale est toujours "jj/mm/aaaa".
+  /*
+   * Masque de saisie JJ/MM/AAAA pour Acrobat/PDF viewers.
+   *
+   * Principe :
+   *   - La valeur du champ est TOUJOURS une chaîne de 10 caractères : "jj/mm/aaaa"
+   *   - Les positions fixes : 0,1=jour  2='/'  3,4=mois  5='/'  6,7,8,9=année
+   *   - Chaque chiffre saisi remplace le prochain placeholder (j, m ou a) en ordre
+   *   - Backspace efface le dernier chiffre saisi (le remet en placeholder)
+   *   - Les '/' ne sont jamais saisis par l'utilisateur, ils font partie du masque
+   *   - À la frappe du 2e chiffre du jour ou du mois → le '/' suivant est "sauté"
+   *     automatiquement (progression naturelle gauche→droite)
+   *
+   * Compatibilité : Acrobat Reader, Acrobat Pro. Chrome PDF viewer n'exécute pas
+   * les AA scripts — comportement normal (champ texte libre dans ce cas).
+   */
 
-  // Action Focus (Fo) : quand l'utilisateur clique, positionne le curseur au début
+  // ── Focus (Fo) : initialise le masque et force le curseur en position 0 ──────
   const foJS = `
-var v = event.target.value;
-if (v === "jj/mm/aaaa" || v === "" || v === null) {
-  event.target.value = "jj/mm/aaaa";
+var v = event.value;
+if (!v || v === "" || !/^\d\d\/\d\d\/\d{4}$/.test(v)) {
+  event.value = "jj/mm/aaaa";
 }
-event.target.setFocus();
+// Positionner le curseur sur le premier placeholder non rempli
+var cur = event.value;
+var slots = [0,1,3,4,6,7,8,9];
+var firstEmpty = 0;
+for (var i = 0; i < slots.length; i++) {
+  var c = cur.charAt(slots[i]);
+  if (c === 'j' || c === 'm' || c === 'a') { firstEmpty = slots[i]; break; }
+}
+event.target.select(firstEmpty, firstEmpty + 1);
 `.trim();
 
-  // Action Keystroke (K) : gère la saisie caractère par caractère
+  // ── Keystroke (K) : cœur du masque ─────────────────────────────────────────
   const kJS = `
-// N'autoriser que les chiffres et les touches de contrôle
-if (!event.willCommit) {
-  var ch = event.change;
-  // Ignorer si ce n'est pas un chiffre (sauf effacement)
-  if (ch !== null && ch !== "" && !/^[0-9]$/.test(ch)) {
-    event.rc = false;
-    return;
+if (event.willCommit) return;
+
+var ch  = event.change;   // caractère tapé (null ou "" = Backspace/Delete)
+var cur = event.value;    // valeur du champ AVANT cette frappe
+var MASK = "jj/mm/aaaa";
+
+// Normaliser la valeur courante
+if (!cur || cur.length !== 10) cur = MASK;
+
+// Positions des chiffres (hors séparateurs)
+var slots = [0,1,3,4,6,7,8,9];
+// Placeholder par position
+function ph(idx) { return idx < 2 ? 'j' : idx < 5 ? 'm' : 'a'; }
+
+// ── Effacement (Backspace / Delete) ──────────────────────────────────────────
+if (ch === null || ch === "") {
+  // Trouver le dernier slot rempli (chiffre réel)
+  var lastFilled = -1;
+  for (var i = slots.length - 1; i >= 0; i--) {
+    var c = cur.charAt(slots[i]);
+    if (c !== 'j' && c !== 'm' && c !== 'a') { lastFilled = slots[i]; break; }
   }
-
-  var cur = event.value; // valeur AVANT la frappe (avec le masque)
-  if (!cur || cur.length !== 10) cur = "jj/mm/aaaa";
-
-  // Trouver la première position de placeholder à remplir
-  var placeholders = [0,1,3,4,6,7,8,9]; // indices des 'j','j','m','m','a','a','a','a'
-  var pos = -1;
-  for (var i = 0; i < placeholders.length; i++) {
-    var idx = placeholders[i];
-    var c = cur.charAt(idx);
-    if (c === 'j' || c === 'm' || c === 'a') { pos = idx; break; }
+  if (lastFilled >= 0) {
+    var arr = cur.split('');
+    arr[lastFilled] = ph(lastFilled);
+    event.value = arr.join('');
+    // Replacer le curseur sur ce slot
+    event.target.select(lastFilled, lastFilled + 1);
   }
-
-  if (ch === null || ch === "") {
-    // Effacement : remettre le dernier chiffre saisi en placeholder
-    var lastFilled = -1;
-    for (var i = placeholders.length - 1; i >= 0; i--) {
-      var idx = placeholders[i];
-      var c = cur.charAt(idx);
-      if (c !== 'j' && c !== 'm' && c !== 'a') { lastFilled = idx; break; }
-    }
-    if (lastFilled >= 0) {
-      var placeholder = lastFilled < 2 ? 'j' : lastFilled < 5 ? 'm' : 'a';
-      var arr = cur.split('');
-      arr[lastFilled] = placeholder;
-      event.value = arr.join('');
-    }
-    event.rc = false;
-    return;
-  }
-
-  if (pos === -1) {
-    // Tout est rempli
-    event.rc = false;
-    return;
-  }
-
-  // Remplacer le placeholder à la position trouvée par le chiffre tapé
-  var arr = cur.split('');
-  arr[pos] = ch;
-  event.value = arr.join('');
   event.rc = false;
+  return;
 }
+
+// ── Saisie d'un caractère ────────────────────────────────────────────────────
+// Rejeter tout ce qui n'est pas un chiffre
+if (!/^[0-9]$/.test(ch)) {
+  event.rc = false;
+  return;
+}
+
+// Trouver le premier slot vide (placeholder)
+var pos = -1;
+for (var i = 0; i < slots.length; i++) {
+  var c = cur.charAt(slots[i]);
+  if (c === 'j' || c === 'm' || c === 'a') { pos = slots[i]; break; }
+}
+
+// Masque déjà complet → bloquer
+if (pos === -1) {
+  event.rc = false;
+  return;
+}
+
+// Écrire le chiffre à la bonne position
+var arr = cur.split('');
+arr[pos] = ch;
+event.value = arr.join('');
+
+// Avancer le curseur sur le prochain slot vide (sauter les '/')
+var nextPos = -1;
+for (var i = 0; i < slots.length; i++) {
+  if (slots[i] > pos) {
+    var c = event.value.charAt(slots[i]);
+    if (c === 'j' || c === 'm' || c === 'a') { nextPos = slots[i]; break; }
+  }
+}
+if (nextPos !== -1) {
+  event.target.select(nextPos, nextPos + 1);
+} else {
+  // Masque complet : positionner après le dernier chiffre
+  event.target.select(10, 10);
+}
+
+event.rc = false;
 `.trim();
 
-  // Action Format (F) : si vide ou invalide, remet le masque
+  // ── Format (F) : affiché après validation/perte de focus ────────────────────
   const fJS = `
 var v = event.value;
 if (!v || v === "" || v === "jj/mm/aaaa") {
   event.value = "jj/mm/aaaa";
+  return;
 }
+// Si le masque est partiellement rempli, laisser tel quel (pas de reformatage)
 `.trim();
 
-  // Action Validate (V) : accepter si c'est une vraie date ou le masque vide
+  // ── Validate (V) : accepte le masque vide OU une vraie date DD/MM/YYYY ──────
   const vJS = `
 var v = event.value;
-if (v === "jj/mm/aaaa" || v === "" || v === null) {
+if (!v || v === "" || v === "jj/mm/aaaa") {
   event.rc = true;
   return;
 }
-// Vérifier que c'est une date valide DD/MM/YYYY
-var m = v.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);
+var m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
 if (!m) { event.rc = false; return; }
-var d = parseInt(m[1]), mo = parseInt(m[2]), y = parseInt(m[3]);
-var dt = new Date(y, mo-1, d);
-event.rc = (dt.getFullYear()===y && dt.getMonth()===mo-1 && dt.getDate()===d);
+var d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3],10);
+var dt = new Date(y, mo - 1, d);
+event.rc = (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d);
+if (!event.rc) {
+  app.alert("Date invalide : " + v + "\\nFormat attendu : jj/mm/aaaa", 1);
+}
 `.trim();
 
   addAA(doc, tf, 'Fo', foJS);
