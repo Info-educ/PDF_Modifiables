@@ -156,24 +156,59 @@ function renderFields() {
     el.className = 'field-el'+(f.id===S.sel?' selected':'');
     el.dataset.id = f.id;
     el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px;`;
-    const icon = { text:'T', checkbox:'☑', select:'▾', date:'📅' }[f.type];
-    const hint = f.type==='date'?'jj/mm/aaaa':(f.type==='checkbox'?'':(f.placeholder||''));
-    el.innerHTML =
-      '<div class="field-inner">'+
-        '<span class="field-label">'+f.name+'</span>'+
-        '<span style="font-size:10px;opacity:.55;margin-right:3px;">'+icon+'</span>'+
-        '<span style="font-size:10px;opacity:.6;overflow:hidden;white-space:nowrap;flex:1;">'+hint+'</span>'+
-        '<div class="resize-handle" data-act="resize"></div>'+
-      '</div>'+
-      '<div class="delete-btn" data-act="delete" title="Supprimer">'+
-        '<svg viewBox="0 0 10 10" style="width:10px;height:10px;display:block;pointer-events:none;"><path d="M2 2l6 6M8 2l-6 6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'+
-      '</div>';
+
+    if (f.type === 'date') {
+      // ── Champ date : input HTML avec masque JJ/MM/AAAA natif ──────────────
+      el.innerHTML =
+        '<div class="field-inner" style="padding:0;overflow:visible;">'+
+          '<span class="field-label">'+f.name+'</span>'+
+          '<input class="date-mask-input" type="text" maxlength="10" '+
+            'value="'+(f._dateValue||'jj/mm/aaaa')+'" '+
+            'style="width:100%;height:100%;border:none;background:transparent;'+
+            'font-size:'+(f.fontSize||10)+'pt;font-family:monospace;'+
+            'color:#1a1a1a;padding:0 4px;cursor:text;outline:none;box-sizing:border-box;">'+
+          '<div class="resize-handle" data-act="resize"></div>'+
+        '</div>'+
+        '<div class="delete-btn" data-act="delete" title="Supprimer">'+
+          '<svg viewBox="0 0 10 10" style="width:10px;height:10px;display:block;pointer-events:none;">'+
+            '<path d="M2 2l6 6M8 2l-6 6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'+
+        '</div>';
+
+      const input = el.querySelector('.date-mask-input');
+      attachDateMask(input, f);
+
+      // Clic sur l'input → sélectionner le champ sans déclencher drag
+      input.addEventListener('mousedown', e => {
+        e.stopPropagation();
+        if (S.sel !== f.id) {
+          S.sel = f.id;
+          document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
+          renderProps();
+        }
+      });
+
+    } else {
+      // ── Autres types : rendu classique ─────────────────────────────────────
+      const icon = { text:'T', checkbox:'☑', select:'▾' }[f.type];
+      const hint = f.type==='checkbox'?'':(f.placeholder||'');
+      el.innerHTML =
+        '<div class="field-inner">'+
+          '<span class="field-label">'+f.name+'</span>'+
+          '<span style="font-size:10px;opacity:.55;margin-right:3px;">'+icon+'</span>'+
+          '<span style="font-size:10px;opacity:.6;overflow:hidden;white-space:nowrap;flex:1;">'+hint+'</span>'+
+          '<div class="resize-handle" data-act="resize"></div>'+
+        '</div>'+
+        '<div class="delete-btn" data-act="delete" title="Supprimer">'+
+          '<svg viewBox="0 0 10 10" style="width:10px;height:10px;display:block;pointer-events:none;">'+
+            '<path d="M2 2l6 6M8 2l-6 6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'+
+        '</div>';
+    }
 
     el.addEventListener('mousedown', e => {
       const t = e.target.closest('[data-act]');
       if (t && t.dataset.act === 'delete') { e.stopPropagation(); e.preventDefault(); delField(f.id); return; }
       if (t && t.dataset.act === 'resize') { e.stopPropagation(); e.preventDefault(); startResize(e, f, el); return; }
-      // Sélection + drag SANS re-render (clé du fix)
+      if (e.target.classList.contains('date-mask-input')) return; // géré par l'input
       e.preventDefault();
       if (S.sel !== f.id) {
         S.sel = f.id;
@@ -185,6 +220,114 @@ function renderFields() {
 
     ov.appendChild(el);
   });
+}
+
+// ── Masque de saisie JJ/MM/AAAA pour un <input> HTML ────────────────────────
+// Même logique que les AA scripts Acrobat, mais en DOM natif.
+function attachDateMask(input, f) {
+  const SLOTS   = [0,1,3,4,6,7,8,9]; // positions des chiffres dans "jj/mm/aaaa"
+  const MASK    = 'jj/mm/aaaa';
+  const SEPS    = [2,5]; // positions des '/'
+
+  function phAt(i) { return i < 2 ? 'j' : i < 5 ? 'm' : 'a'; }
+
+  function firstEmpty(v) {
+    for (let i = 0; i < SLOTS.length; i++) {
+      const c = v[SLOTS[i]];
+      if (c === 'j' || c === 'm' || c === 'a') return SLOTS[i];
+    }
+    return -1;
+  }
+
+  function lastFilled(v) {
+    for (let i = SLOTS.length - 1; i >= 0; i--) {
+      const c = v[SLOTS[i]];
+      if (c !== 'j' && c !== 'm' && c !== 'a') return SLOTS[i];
+    }
+    return -1;
+  }
+
+  // Positionne le curseur sur le prochain slot vide après `afterPos`
+  function moveCursor(pos) {
+    // Trouver le prochain slot vide >= pos
+    const v = input.value;
+    let target = -1;
+    for (let i = 0; i < SLOTS.length; i++) {
+      if (SLOTS[i] >= pos) {
+        const c = v[SLOTS[i]];
+        if (c === 'j' || c === 'm' || c === 'a') { target = SLOTS[i]; break; }
+      }
+    }
+    if (target === -1) target = 10; // tout rempli → fin
+    requestAnimationFrame(() => input.setSelectionRange(target, target + (target < 10 ? 1 : 0)));
+  }
+
+  // Focus : initialise le masque et place le curseur sur le premier slot vide
+  input.addEventListener('focus', () => {
+    if (!input.value || input.value === '' || input.value.length !== 10) {
+      input.value = MASK;
+    }
+    const fe = firstEmpty(input.value);
+    const pos = fe === -1 ? 10 : fe;
+    requestAnimationFrame(() => input.setSelectionRange(pos, pos + (pos < 10 ? 1 : 0)));
+  });
+
+  // Blur : si masque vide ou invalide → remettre le placeholder
+  input.addEventListener('blur', () => {
+    const v = input.value;
+    const complete = /^\d{2}\/\d{2}\/\d{4}$/.test(v);
+    if (!complete) { input.value = MASK; f._dateValue = ''; }
+    else f._dateValue = v;
+  });
+
+  // keydown : intercepter AVANT que le navigateur modifie la valeur
+  input.addEventListener('keydown', e => {
+    // Laisser passer Tab, Escape, F-keys, Ctrl+C/V/A...
+    if (e.ctrlKey || e.metaKey || e.key === 'Tab' || e.key === 'Escape') return;
+
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      let v = input.value;
+      if (v.length !== 10) { input.value = MASK; return; }
+      const lf = lastFilled(v);
+      if (lf >= 0) {
+        const arr = v.split('');
+        arr[lf] = phAt(lf);
+        input.value = arr.join('');
+        requestAnimationFrame(() => input.setSelectionRange(lf, lf + 1));
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
+      // Laisser naviguer librement
+      return;
+    }
+
+    if (!/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      return;
+    }
+
+    // Chiffre tapé
+    e.preventDefault();
+    let v = input.value;
+    if (!v || v.length !== 10) v = MASK;
+
+    const pos = firstEmpty(v);
+    if (pos === -1) return; // déjà complet
+
+    const arr = v.split('');
+    arr[pos] = e.key;
+    input.value = arr.join('');
+    f._dateValue = /^\d{2}\/\d{2}\/\d{4}$/.test(input.value) ? input.value : '';
+
+    // Avancer le curseur sur le prochain slot vide
+    moveCursor(pos + 1);
+  });
+
+  // Bloquer le paste pour ne pas corrompre le masque
+  input.addEventListener('paste', e => e.preventDefault());
 }
 
 // FIX DRAG : on déplace directement l'élément DOM, sans renderFields() pendant le move
@@ -520,6 +663,16 @@ function clean(t) {
 
 async function exportPdf() {
   if (!S.fields.length) { notify('Ajoute au moins un champ.','error'); return; }
+
+  // Synchroniser les valeurs des inputs date visibles avant export
+  document.querySelectorAll('.date-mask-input').forEach(input => {
+    const id = input.closest('.field-el')?.dataset.id;
+    const f  = id && S.fields.find(x => x.id === id);
+    if (f) {
+      const v = input.value;
+      f._dateValue = /^\d{2}\/\d{2}\/\d{4}$/.test(v) ? v : '';
+    }
+  });
   loading('Génération du PDF remplissable...');
   try {
     const doc = await PDFDocument.load(S.pdfBytes.slice());
@@ -561,13 +714,13 @@ async function exportPdf() {
           const tf = form.createTextField(name);
           tf.addToPage(pg, { x:pdfX, y:pdfY, width:pdfW, height:pdfH, borderWidth:0.7, borderColor:blue, backgroundColor:bg });
           setTextFieldFontSize(doc, tf, fs);
-          // Texte indicatif visible : on met jj/mm/aaaa comme valeur par défaut
-          // La couleur grise est gérée via l'action Format (si vide → affiche le hint en gris)
+          // Valeur initiale : date saisie dans l'UI ou masque vide
           try {
-            const hint = 'jj/mm/aaaa';
-            tf.acroField.dict.set(PDFLib.PDFName.of('V'),  PDFLib.PDFString.of(hint));
-            tf.acroField.dict.set(PDFLib.PDFName.of('DV'), PDFLib.PDFString.of(hint));
+            const initVal = f._dateValue || 'jj/mm/aaaa';
+            tf.acroField.dict.set(PDFLib.PDFName.of('V'),  PDFLib.PDFString.of(initVal));
+            tf.acroField.dict.set(PDFLib.PDFName.of('DV'), PDFLib.PDFString.of('jj/mm/aaaa'));
           } catch(e) { /* silencieux */ }
+          // Scripts Acrobat AA (masque interactif dans Acrobat Reader / Pro)
           addDatePickerAction(doc, tf, fs);
           if (f.required) tf.enableRequired();
 
