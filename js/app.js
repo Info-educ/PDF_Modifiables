@@ -188,11 +188,14 @@ function renderFields() {
 
       attachDateInputs(ij, im, ia, f);
 
-      // Mousedown sur les inputs → sélection du champ, drag bloqué
+      // Mousedown sur les inputs : NE PAS stopper la propagation
+      // → le mousedown remonte vers el → startDrag se déclenche normalement
+      // → le focus natif sur l'input se fait au mouseup si l'user n'a pas dragué
       [ij, im, ia].forEach(inp => {
         inp.addEventListener('mousedown', e => {
-          e.stopPropagation();
+          // Sélectionner le champ sans bloquer le drag
           selectField(f.id);
+          // Pas de stopPropagation → le drag peut démarrer
         });
       });
 
@@ -216,8 +219,9 @@ function renderFields() {
       const t = e.target.closest('[data-act]');
       if (t && t.dataset.act === 'delete') { e.stopPropagation(); e.preventDefault(); delField(f.id); return; }
       if (t && t.dataset.act === 'resize') { e.stopPropagation(); e.preventDefault(); startResize(e, f, el); return; }
-      if (e.target.classList.contains('di')) return; // géré par les inputs
-      e.preventDefault();
+      // Si clic sur un input date : ne pas preventDefault (sinon le focus est bloqué)
+      // mais démarrer le drag quand même — le navigateur donnera le focus au mouseup
+      if (!e.target.classList.contains('di')) e.preventDefault();
       selectField(f.id);
       startDrag(e, f, el);
     });
