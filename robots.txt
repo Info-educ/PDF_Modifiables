@@ -1,0 +1,71 @@
+# Bloquer tous les robots d'indexation
+User-agent: *
+Disallow: /
+
+# Google
+User-agent: Googlebot
+Disallow: /
+
+# Google Images
+User-agent: Googlebot-Image
+Disallow: /
+
+# Google AdsBot
+User-agent: AdsBot-Google
+Disallow: /
+
+# Bing / Microsoft
+User-agent: bingbot
+Disallow: /
+
+User-agent: msnbot
+Disallow: /
+
+# Yahoo / Slurp
+User-agent: Slurp
+Disallow: /
+
+# Baidu
+User-agent: Baiduspider
+Disallow: /
+
+# Yandex
+User-agent: YandexBot
+Disallow: /
+
+# DuckDuckGo
+User-agent: DuckDuckBot
+Disallow: /
+
+# Ask / Teoma
+User-agent: Teoma
+Disallow: /
+
+# Applebot (Safari / Siri)
+User-agent: Applebot
+Disallow: /
+
+# Robots IA / scraping (OpenAI, Anthropic, Common Crawl...)
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: ia_archiver
+Disallow: /
+
+User-agent: archive.org_bot
+Disallow: /
+
+# Empêcher le sitemap d'être trouvé
+# Sitemap: (non déclaré volontairement)

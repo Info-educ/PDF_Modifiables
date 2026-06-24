@@ -3,6 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ── Désindexation complète ─────────────────────────────────────────── -->
+  <!-- Robots génériques (Google, Bing, Yahoo, DuckDuckGo...) -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, nocache">
+  <!-- Google spécifique -->
+  <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <!-- Bing / MSN spécifique -->
+  <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet">
+  <!-- Slurp (Yahoo) -->
+  <meta name="slurp" content="noindex, nofollow">
+  <!-- Baidu -->
+  <meta name="Baiduspider" content="noindex, nofollow">
+  <!-- Yandex -->
+  <meta name="yandex" content="none">
+  <!-- DuckDuckBot -->
+  <meta name="duckduckbot" content="noindex, nofollow">
+  <!-- Teoma (Ask.com) -->
+  <meta name="teoma" content="noindex, nofollow">
+  <!-- Empêcher la mise en cache par les proxies et CDN -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
 <title>PDF Modifiables</title>
 <link rel="stylesheet" href="css/styles.css">
 <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>

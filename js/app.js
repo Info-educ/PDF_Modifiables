@@ -497,30 +497,48 @@ function splitDateValueExport(v) {
 // - quand maxLen chiffres saisis, passe le focus au champ suivant (nextName)
 // Fonctionne dans Acrobat Reader/Pro. Chrome PDF viewer l'ignore (maxLength suffit).
 function addDateFieldAA(doc, tf, maxLen, nextName) {
-  const kJS = (
-    'if (!event.willCommit) {' +
-    '  var ch = event.change;' +
-    '  if (ch !== null && ch !== "" && !/^[0-9]$/.test(ch)) { event.rc = false; return; }' +
-    '  var v = event.value || "";' +
-    '  var digits = v.replace(/[^0-9]/g,"");' +
-    '  if (digits.length >= ' + maxLen + ' && ch !== null && ch !== "") { event.rc = false; return; }' +
-    (nextName ? (
-    '  if (digits.length === ' + (maxLen-1) + ' && ch !== null && ch !== "") {' +
-    '    var nf = this.getField("' + nextName + '");' +
-    '    if (nf) { event.value = digits + ch; nf.setFocus(); event.rc = false; return; }' +
-    '  }'
-    ) : '') +
-    '}'
-  );
-  try {
-    const ctx = doc.context;
-    const aaKey = PDFLib.PDFName.of('AA');
-    const kKey  = PDFLib.PDFName.of('K');
-    let aaDict = tf.acroField.dict.lookupMaybe(aaKey);
-    if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
-    aaDict.set(kKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(kJS) }));
-    tf.acroField.dict.set(aaKey, aaDict);
-  } catch(e) { console.warn('addDateFieldAA:', e.message); }
+  // ── Focus (Fo) : curseur tout à gauche dès le clic ──────────────────────
+  const foJS =
+    'event.target.select(0, 0);';
+
+  // ── Keystroke (K) : chiffres uniquement + tab auto après maxLen chiffres ─
+  // event.value = valeur avant la frappe
+  // event.change = caractère tapé (null/"" = effacement)
+  // On reconstruit la valeur manuellement pour garder le contrôle total.
+  const kJS =
+    'if (event.willCommit) return;' +
+    'var ch = event.change;' +
+    'if (ch !== null && ch !== "" && !/^[0-9]$/.test(ch)) { event.rc = false; return; }' +
+    'var cur = (event.value || "").replace(/[^0-9]/g, "");' +
+    // Effacement
+    'if (ch === null || ch === "") { event.rc = true; return; }' +
+    // Champ déjà plein → bloquer
+    'if (cur.length >= ' + maxLen + ') { event.rc = false; return; }' +
+    // Avant-dernier chiffre → laisser passer normalement
+    'event.rc = true;' +
+    // Dernier chiffre → écrire et sauter au champ suivant
+    'if (cur.length === ' + (maxLen - 1) + ') {' +
+    '  event.value = cur + ch;' +
+    (nextName
+      ? '  var nf = this.getField("' + nextName + '"); if (nf) { nf.setFocus(); nf.select(0,0); }'
+      : '') +
+    '  event.rc = false;' +
+    '}';
+
+  function setAA(trigger, js) {
+    try {
+      const ctx    = doc.context;
+      const aaKey  = PDFLib.PDFName.of('AA');
+      const tKey   = PDFLib.PDFName.of(trigger);
+      let aaDict   = tf.acroField.dict.lookupMaybe(aaKey);
+      if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
+      aaDict.set(tKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(js) }));
+      tf.acroField.dict.set(aaKey, aaDict);
+    } catch(e) { console.warn('addDateFieldAA', trigger, e.message); }
+  }
+
+  setAA('Fo', foJS);
+  setAA('K',  kJS);
 }
 
 function clean(t) {
