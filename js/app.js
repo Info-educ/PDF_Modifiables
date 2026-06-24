@@ -158,13 +158,19 @@ function renderFields() {
     el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px;`;
 
     if (f.type === 'date') {
-      // ── Champ date : input HTML avec masque JJ/MM/AAAA natif ──────────────
+      // Barre de drag (14px) en haut + input en dessous
       el.innerHTML =
-        '<div class="field-inner" style="padding:0;overflow:visible;">'+
-          '<span class="field-label">'+f.name+'</span>'+
+        '<div class="field-inner" style="flex-direction:column;padding:0;overflow:visible;cursor:default;">'+
+          '<div class="date-drag-handle" data-act="drag" '+
+            'style="width:100%;height:14px;display:flex;align-items:center;'+
+            'padding:0 4px;cursor:move;flex-shrink:0;user-select:none;background:rgba(55,138,221,.18);border-radius:3px 3px 0 0;">'+
+            '<span style="font-size:9px;font-weight:600;color:var(--blue);'+
+              'white-space:nowrap;overflow:hidden;flex:1;pointer-events:none;">'+f.name+'</span>'+
+            '<span style="font-size:9px;opacity:.5;pointer-events:none;">&#x1F4C5;</span>'+
+          '</div>'+
           '<input class="date-mask-input" type="text" maxlength="10" '+
             'value="'+(f._dateValue||'jj/mm/aaaa')+'" '+
-            'style="width:100%;height:100%;border:none;background:transparent;'+
+            'style="flex:1;width:100%;min-height:0;border:none;background:transparent;'+
             'font-size:'+(f.fontSize||10)+'pt;font-family:monospace;'+
             'color:#1a1a1a;padding:0 4px;cursor:text;outline:none;box-sizing:border-box;">'+
           '<div class="resize-handle" data-act="resize"></div>'+
@@ -177,19 +183,31 @@ function renderFields() {
       const input = el.querySelector('.date-mask-input');
       attachDateMask(input, f);
 
-      // Clic sur l'input → sélectionner le champ sans déclencher drag
-      input.addEventListener('mousedown', e => {
-        e.stopPropagation();
+      // Drag handle : mousedown => drag (preventDefault bloque le focus input)
+      const handle = el.querySelector('.date-drag-handle');
+      handle.addEventListener('mousedown', e => {
+        e.preventDefault();
         if (S.sel !== f.id) {
           S.sel = f.id;
           document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
           renderProps();
         }
+        startDrag(e, f, el);
+      });
+
+      // Input : on selectionne le champ mais on laisse le focus se faire naturellement
+      input.addEventListener('mousedown', e => {
+        e.stopPropagation(); // empeche el.mousedown de lancer startDrag
+        if (S.sel !== f.id) {
+          S.sel = f.id;
+          document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
+          renderProps();
+        }
+        // pas de preventDefault => l'input recoit le focus
       });
 
     } else {
-      // ── Autres types : rendu classique ─────────────────────────────────────
-      const icon = { text:'T', checkbox:'☑', select:'▾' }[f.type];
+      const icon = { text:'T', checkbox:'\u2611', select:'\u25be' }[f.type];
       const hint = f.type==='checkbox'?'':(f.placeholder||'');
       el.innerHTML =
         '<div class="field-inner">'+
@@ -208,7 +226,8 @@ function renderFields() {
       const t = e.target.closest('[data-act]');
       if (t && t.dataset.act === 'delete') { e.stopPropagation(); e.preventDefault(); delField(f.id); return; }
       if (t && t.dataset.act === 'resize') { e.stopPropagation(); e.preventDefault(); startResize(e, f, el); return; }
-      if (e.target.classList.contains('date-mask-input')) return; // géré par l'input
+      if (t && t.dataset.act === 'drag')   return; // gere par le handle
+      if (e.target.classList.contains('date-mask-input')) return; // gere par l'input
       e.preventDefault();
       if (S.sel !== f.id) {
         S.sel = f.id;
@@ -222,113 +241,96 @@ function renderFields() {
   });
 }
 
-// ── Masque de saisie JJ/MM/AAAA pour un <input> HTML ────────────────────────
-// Même logique que les AA scripts Acrobat, mais en DOM natif.
+// Masque de saisie JJ/MM/AAAA pour un <input> HTML
 function attachDateMask(input, f) {
-  const SLOTS   = [0,1,3,4,6,7,8,9]; // positions des chiffres dans "jj/mm/aaaa"
-  const MASK    = 'jj/mm/aaaa';
-  const SEPS    = [2,5]; // positions des '/'
+  const SLOTS = [0,1,3,4,6,7,8,9];
+  const MASK  = 'jj/mm/aaaa';
 
   function phAt(i) { return i < 2 ? 'j' : i < 5 ? 'm' : 'a'; }
 
   function firstEmpty(v) {
-    for (let i = 0; i < SLOTS.length; i++) {
-      const c = v[SLOTS[i]];
+    for (var i = 0; i < SLOTS.length; i++) {
+      var c = v[SLOTS[i]];
       if (c === 'j' || c === 'm' || c === 'a') return SLOTS[i];
     }
     return -1;
   }
 
   function lastFilled(v) {
-    for (let i = SLOTS.length - 1; i >= 0; i--) {
-      const c = v[SLOTS[i]];
+    for (var i = SLOTS.length - 1; i >= 0; i--) {
+      var c = v[SLOTS[i]];
       if (c !== 'j' && c !== 'm' && c !== 'a') return SLOTS[i];
     }
     return -1;
   }
 
-  // Positionne le curseur sur le prochain slot vide après `afterPos`
-  function moveCursor(pos) {
-    // Trouver le prochain slot vide >= pos
-    const v = input.value;
-    let target = -1;
-    for (let i = 0; i < SLOTS.length; i++) {
-      if (SLOTS[i] >= pos) {
-        const c = v[SLOTS[i]];
+  function moveCursor(afterPos) {
+    var v = input.value;
+    var target = -1;
+    for (var i = 0; i < SLOTS.length; i++) {
+      if (SLOTS[i] >= afterPos) {
+        var c = v[SLOTS[i]];
         if (c === 'j' || c === 'm' || c === 'a') { target = SLOTS[i]; break; }
       }
     }
-    if (target === -1) target = 10; // tout rempli → fin
-    requestAnimationFrame(() => input.setSelectionRange(target, target + (target < 10 ? 1 : 0)));
+    if (target === -1) target = 10;
+    requestAnimationFrame(function() {
+      input.setSelectionRange(target, target < 10 ? target + 1 : target);
+    });
   }
 
-  // Focus : initialise le masque et place le curseur sur le premier slot vide
-  input.addEventListener('focus', () => {
-    if (!input.value || input.value === '' || input.value.length !== 10) {
-      input.value = MASK;
-    }
-    const fe = firstEmpty(input.value);
-    const pos = fe === -1 ? 10 : fe;
-    requestAnimationFrame(() => input.setSelectionRange(pos, pos + (pos < 10 ? 1 : 0)));
+  input.addEventListener('focus', function() {
+    if (!input.value || input.value.length !== 10) input.value = MASK;
+    var fe = firstEmpty(input.value);
+    var pos = fe === -1 ? 10 : fe;
+    requestAnimationFrame(function() {
+      input.setSelectionRange(pos, pos < 10 ? pos + 1 : pos);
+    });
   });
 
-  // Blur : si masque vide ou invalide → remettre le placeholder
-  input.addEventListener('blur', () => {
-    const v = input.value;
-    const complete = /^\d{2}\/\d{2}\/\d{4}$/.test(v);
-    if (!complete) { input.value = MASK; f._dateValue = ''; }
+  input.addEventListener('blur', function() {
+    var v = input.value;
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(v)) { input.value = MASK; f._dateValue = ''; }
     else f._dateValue = v;
   });
 
-  // keydown : intercepter AVANT que le navigateur modifie la valeur
-  input.addEventListener('keydown', e => {
-    // Laisser passer Tab, Escape, F-keys, Ctrl+C/V/A...
+  input.addEventListener('keydown', function(e) {
     if (e.ctrlKey || e.metaKey || e.key === 'Tab' || e.key === 'Escape') return;
 
     if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
-      let v = input.value;
+      var v = input.value;
       if (v.length !== 10) { input.value = MASK; return; }
-      const lf = lastFilled(v);
+      var lf = lastFilled(v);
       if (lf >= 0) {
-        const arr = v.split('');
+        var arr = v.split('');
         arr[lf] = phAt(lf);
         input.value = arr.join('');
-        requestAnimationFrame(() => input.setSelectionRange(lf, lf + 1));
+        requestAnimationFrame(function() { input.setSelectionRange(lf, lf + 1); });
       }
       return;
     }
 
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-      // Laisser naviguer librement
-      return;
-    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') return;
 
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
+    if (!/^[0-9]$/.test(e.key)) { e.preventDefault(); return; }
 
-    // Chiffre tapé
     e.preventDefault();
-    let v = input.value;
+    var v = input.value;
     if (!v || v.length !== 10) v = MASK;
-
-    const pos = firstEmpty(v);
-    if (pos === -1) return; // déjà complet
-
-    const arr = v.split('');
+    var pos = firstEmpty(v);
+    if (pos === -1) return;
+    var arr = v.split('');
     arr[pos] = e.key;
     input.value = arr.join('');
     f._dateValue = /^\d{2}\/\d{2}\/\d{4}$/.test(input.value) ? input.value : '';
-
-    // Avancer le curseur sur le prochain slot vide
     moveCursor(pos + 1);
   });
 
-  // Bloquer le paste pour ne pas corrompre le masque
-  input.addEventListener('paste', e => e.preventDefault());
+  input.addEventListener('paste', function(e) { e.preventDefault(); });
 }
+
+
 
 // FIX DRAG : on déplace directement l'élément DOM, sans renderFields() pendant le move
 function startDrag(e, f, el) {
