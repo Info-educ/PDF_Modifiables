@@ -158,21 +158,18 @@ function renderFields() {
     el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px;`;
 
     if (f.type === 'date') {
-      // Barre de drag (14px) en haut + input en dessous
+      // Rendu : label + 3 mini-inputs JJ / MM / AAAA alignés horizontalement
       el.innerHTML =
-        '<div class="field-inner" style="flex-direction:column;padding:0;overflow:visible;cursor:default;">'+
-          '<div class="date-drag-handle" data-act="drag" '+
-            'style="width:100%;height:14px;display:flex;align-items:center;'+
-            'padding:0 4px;cursor:move;flex-shrink:0;user-select:none;background:rgba(55,138,221,.18);border-radius:3px 3px 0 0;">'+
-            '<span style="font-size:9px;font-weight:600;color:var(--blue);'+
-              'white-space:nowrap;overflow:hidden;flex:1;pointer-events:none;">'+f.name+'</span>'+
-            '<span style="font-size:9px;opacity:.5;pointer-events:none;">&#x1F4C5;</span>'+
-          '</div>'+
-          '<input class="date-mask-input" type="text" maxlength="10" '+
-            'value="'+(f._dateValue||'jj/mm/aaaa')+'" '+
-            'style="flex:1;width:100%;min-height:0;border:none;background:transparent;'+
-            'font-size:'+(f.fontSize||10)+'pt;font-family:monospace;'+
-            'color:#1a1a1a;padding:0 4px;cursor:text;outline:none;box-sizing:border-box;">'+
+        '<div class="field-inner" style="padding:0 4px;gap:1px;overflow:visible;">'+
+          '<span class="field-label">'+f.name+'</span>'+
+          '<input class="di dj" maxlength="2" placeholder="jj" '+
+            'style="width:22px;'+getDateInputStyle(f)+'">'+
+          '<span style="color:#888;font-size:'+(f.fontSize||10)+'pt;line-height:1;user-select:none;">/</span>'+
+          '<input class="di dm" maxlength="2" placeholder="mm" '+
+            'style="width:22px;'+getDateInputStyle(f)+'">'+
+          '<span style="color:#888;font-size:'+(f.fontSize||10)+'pt;line-height:1;user-select:none;">/</span>'+
+          '<input class="di da" maxlength="4" placeholder="aaaa" '+
+            'style="flex:1;min-width:30px;'+getDateInputStyle(f)+'">'+
           '<div class="resize-handle" data-act="resize"></div>'+
         '</div>'+
         '<div class="delete-btn" data-act="delete" title="Supprimer">'+
@@ -180,30 +177,23 @@ function renderFields() {
             '<path d="M2 2l6 6M8 2l-6 6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'+
         '</div>';
 
-      const input = el.querySelector('.date-mask-input');
-      attachDateMask(input, f);
+      // Restituer les valeurs sauvegardées
+      const [vj, vm, va] = splitDateValue(f._dateValue);
+      const ij = el.querySelector('.dj');
+      const im = el.querySelector('.dm');
+      const ia = el.querySelector('.da');
+      if (vj) ij.value = vj;
+      if (vm) im.value = vm;
+      if (va) ia.value = va;
 
-      // Drag handle : mousedown => drag (preventDefault bloque le focus input)
-      const handle = el.querySelector('.date-drag-handle');
-      handle.addEventListener('mousedown', e => {
-        e.preventDefault();
-        if (S.sel !== f.id) {
-          S.sel = f.id;
-          document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
-          renderProps();
-        }
-        startDrag(e, f, el);
-      });
+      attachDateInputs(ij, im, ia, f);
 
-      // Input : on selectionne le champ mais on laisse le focus se faire naturellement
-      input.addEventListener('mousedown', e => {
-        e.stopPropagation(); // empeche el.mousedown de lancer startDrag
-        if (S.sel !== f.id) {
-          S.sel = f.id;
-          document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
-          renderProps();
-        }
-        // pas de preventDefault => l'input recoit le focus
+      // Mousedown sur les inputs → sélection du champ, drag bloqué
+      [ij, im, ia].forEach(inp => {
+        inp.addEventListener('mousedown', e => {
+          e.stopPropagation();
+          selectField(f.id);
+        });
       });
 
     } else {
@@ -226,14 +216,9 @@ function renderFields() {
       const t = e.target.closest('[data-act]');
       if (t && t.dataset.act === 'delete') { e.stopPropagation(); e.preventDefault(); delField(f.id); return; }
       if (t && t.dataset.act === 'resize') { e.stopPropagation(); e.preventDefault(); startResize(e, f, el); return; }
-      if (t && t.dataset.act === 'drag')   return; // gere par le handle
-      if (e.target.classList.contains('date-mask-input')) return; // gere par l'input
+      if (e.target.classList.contains('di')) return; // géré par les inputs
       e.preventDefault();
-      if (S.sel !== f.id) {
-        S.sel = f.id;
-        document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===f.id));
-        renderProps();
-      }
+      selectField(f.id);
       startDrag(e, f, el);
     });
 
@@ -241,94 +226,84 @@ function renderFields() {
   });
 }
 
-// Masque de saisie JJ/MM/AAAA pour un <input> HTML
-function attachDateMask(input, f) {
-  const SLOTS = [0,1,3,4,6,7,8,9];
-  const MASK  = 'jj/mm/aaaa';
-
-  function phAt(i) { return i < 2 ? 'j' : i < 5 ? 'm' : 'a'; }
-
-  function firstEmpty(v) {
-    for (var i = 0; i < SLOTS.length; i++) {
-      var c = v[SLOTS[i]];
-      if (c === 'j' || c === 'm' || c === 'a') return SLOTS[i];
-    }
-    return -1;
-  }
-
-  function lastFilled(v) {
-    for (var i = SLOTS.length - 1; i >= 0; i--) {
-      var c = v[SLOTS[i]];
-      if (c !== 'j' && c !== 'm' && c !== 'a') return SLOTS[i];
-    }
-    return -1;
-  }
-
-  function moveCursor(afterPos) {
-    var v = input.value;
-    var target = -1;
-    for (var i = 0; i < SLOTS.length; i++) {
-      if (SLOTS[i] >= afterPos) {
-        var c = v[SLOTS[i]];
-        if (c === 'j' || c === 'm' || c === 'a') { target = SLOTS[i]; break; }
-      }
-    }
-    if (target === -1) target = 10;
-    requestAnimationFrame(function() {
-      input.setSelectionRange(target, target < 10 ? target + 1 : target);
-    });
-  }
-
-  input.addEventListener('focus', function() {
-    if (!input.value || input.value.length !== 10) input.value = MASK;
-    var fe = firstEmpty(input.value);
-    var pos = fe === -1 ? 10 : fe;
-    requestAnimationFrame(function() {
-      input.setSelectionRange(pos, pos < 10 ? pos + 1 : pos);
-    });
-  });
-
-  input.addEventListener('blur', function() {
-    var v = input.value;
-    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(v)) { input.value = MASK; f._dateValue = ''; }
-    else f._dateValue = v;
-  });
-
-  input.addEventListener('keydown', function(e) {
-    if (e.ctrlKey || e.metaKey || e.key === 'Tab' || e.key === 'Escape') return;
-
-    if (e.key === 'Backspace' || e.key === 'Delete') {
-      e.preventDefault();
-      var v = input.value;
-      if (v.length !== 10) { input.value = MASK; return; }
-      var lf = lastFilled(v);
-      if (lf >= 0) {
-        var arr = v.split('');
-        arr[lf] = phAt(lf);
-        input.value = arr.join('');
-        requestAnimationFrame(function() { input.setSelectionRange(lf, lf + 1); });
-      }
-      return;
-    }
-
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') return;
-
-    if (!/^[0-9]$/.test(e.key)) { e.preventDefault(); return; }
-
-    e.preventDefault();
-    var v = input.value;
-    if (!v || v.length !== 10) v = MASK;
-    var pos = firstEmpty(v);
-    if (pos === -1) return;
-    var arr = v.split('');
-    arr[pos] = e.key;
-    input.value = arr.join('');
-    f._dateValue = /^\d{2}\/\d{2}\/\d{4}$/.test(input.value) ? input.value : '';
-    moveCursor(pos + 1);
-  });
-
-  input.addEventListener('paste', function(e) { e.preventDefault(); });
+function selectField(id) {
+  if (S.sel === id) return;
+  S.sel = id;
+  document.querySelectorAll('.field-el').forEach(x => x.classList.toggle('selected', x.dataset.id===id));
+  renderProps();
 }
+
+function getDateInputStyle(f) {
+  return 'border:none;background:transparent;outline:none;box-sizing:border-box;'+
+    'font-size:'+(f.fontSize||10)+'pt;font-family:monospace;color:#1a1a1a;'+
+    'padding:0 1px;text-align:center;';
+}
+
+function splitDateValue(v) {
+  if (!v) return ['','',''];
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? [m[1],m[2],m[3]] : ['','',''];
+}
+
+function saveDateValue(ij, im, ia, f) {
+  const j = ij.value.padStart(2,'0');
+  const m = im.value.padStart(2,'0');
+  const a = ia.value;
+  if (/^\d{2}$/.test(j) && /^\d{2}$/.test(m) && /^\d{4}$/.test(a)) {
+    f._dateValue = j+'/'+m+'/'+a;
+  } else {
+    f._dateValue = '';
+  }
+}
+
+// Gestion des 3 inputs JJ / MM / AAAA
+function attachDateInputs(ij, im, ia, f) {
+  // Autoriser seulement les chiffres, avancer automatiquement au champ suivant
+  function digitOnly(e, inp, maxLen, next) {
+    if (e.ctrlKey || e.metaKey) return;
+    if (e.key === 'Tab' || e.key === 'Escape') return;
+    if (e.key === 'Backspace') {
+      if (inp.value === '' && next === null) return; // laisse effacer normalement
+      return; // comportement natif
+    }
+    if (!/^[0-9]$/.test(e.key)) { e.preventDefault(); return; }
+    // Si on atteint maxLen après cette frappe → passer au suivant
+    if (inp.value.length >= maxLen - 1 && next) {
+      // laisser la touche s'inscrire normalement, puis focus
+      setTimeout(() => { if (inp.value.length >= maxLen) { next.focus(); next.select(); } }, 0);
+    }
+  }
+
+  ij.addEventListener('keydown', e => digitOnly(e, ij, 2, im));
+  im.addEventListener('keydown', e => digitOnly(e, im, 2, ia));
+  ia.addEventListener('keydown', e => digitOnly(e, ia, 4, null));
+
+  // Backspace sur champ vide → revenir au précédent
+  im.addEventListener('keydown', e => { if (e.key==='Backspace' && im.value==='') { ij.focus(); ij.setSelectionRange(2,2); } });
+  ia.addEventListener('keydown', e => { if (e.key==='Backspace' && ia.value==='') { im.focus(); im.setSelectionRange(2,2); } });
+
+  // Sauvegarder à chaque frappe
+  [ij,im,ia].forEach(inp => inp.addEventListener('input', () => saveDateValue(ij,im,ia,f)));
+
+  // Sélectionner tout au focus pour faciliter la correction
+  [ij,im,ia].forEach(inp => inp.addEventListener('focus', () => inp.select()));
+
+  // Paste sur JJ : essayer de parser une date collée au format xx/xx/xxxx
+  ij.addEventListener('paste', e => {
+    e.preventDefault();
+    const raw = (e.clipboardData||window.clipboardData).getData('text').trim();
+    const m = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+    if (m) {
+      ij.value = m[1].padStart(2,'0');
+      im.value = m[2].padStart(2,'0');
+      ia.value = m[3].length===2 ? '20'+m[3] : m[3];
+      saveDateValue(ij,im,ia,f);
+      ia.focus(); ia.select();
+    }
+  });
+}
+
+
 
 
 
@@ -491,10 +466,6 @@ function setTextFieldFontSize(doc, tf, fontSize) {
     tf.acroField.dict.set(ffKey, PDFLib.PDFNumber.of(ffNum));
   } catch(e) { /* fallback silencieux */ }
 }
-
-/**
- * Ajoute le sélecteur de date Acrobat (format DD/MM/YYYY).
- */
 function addAA(doc, tf, trigger, jsCode) {
   try {
     const acroField = tf.acroField;
@@ -508,152 +479,46 @@ function addAA(doc, tf, trigger, jsCode) {
   } catch(e) { console.warn('addAA:', e.message); }
 }
 
-function addDatePickerAction(doc, tf, fontSize) {
-  /*
-   * Masque de saisie JJ/MM/AAAA pour Acrobat/PDF viewers.
-   *
-   * Principe :
-   *   - La valeur du champ est TOUJOURS une chaîne de 10 caractères : "jj/mm/aaaa"
-   *   - Les positions fixes : 0,1=jour  2='/'  3,4=mois  5='/'  6,7,8,9=année
-   *   - Chaque chiffre saisi remplace le prochain placeholder (j, m ou a) en ordre
-   *   - Backspace efface le dernier chiffre saisi (le remet en placeholder)
-   *   - Les '/' ne sont jamais saisis par l'utilisateur, ils font partie du masque
-   *   - À la frappe du 2e chiffre du jour ou du mois → le '/' suivant est "sauté"
-   *     automatiquement (progression naturelle gauche→droite)
-   *
-   * Compatibilité : Acrobat Reader, Acrobat Pro. Chrome PDF viewer n'exécute pas
-   * les AA scripts — comportement normal (champ texte libre dans ce cas).
-   */
-
-  // ── Focus (Fo) : initialise le masque et force le curseur en position 0 ──────
-  const foJS = `
-var v = event.value;
-if (!v || v === "" || !/^\d\d\/\d\d\/\d{4}$/.test(v)) {
-  event.value = "jj/mm/aaaa";
-}
-// Positionner le curseur sur le premier placeholder non rempli
-var cur = event.value;
-var slots = [0,1,3,4,6,7,8,9];
-var firstEmpty = 0;
-for (var i = 0; i < slots.length; i++) {
-  var c = cur.charAt(slots[i]);
-  if (c === 'j' || c === 'm' || c === 'a') { firstEmpty = slots[i]; break; }
-}
-event.target.select(firstEmpty, firstEmpty + 1);
-`.trim();
-
-  // ── Keystroke (K) : cœur du masque ─────────────────────────────────────────
-  const kJS = `
-if (event.willCommit) return;
-
-var ch  = event.change;   // caractère tapé (null ou "" = Backspace/Delete)
-var cur = event.value;    // valeur du champ AVANT cette frappe
-var MASK = "jj/mm/aaaa";
-
-// Normaliser la valeur courante
-if (!cur || cur.length !== 10) cur = MASK;
-
-// Positions des chiffres (hors séparateurs)
-var slots = [0,1,3,4,6,7,8,9];
-// Placeholder par position
-function ph(idx) { return idx < 2 ? 'j' : idx < 5 ? 'm' : 'a'; }
-
-// ── Effacement (Backspace / Delete) ──────────────────────────────────────────
-if (ch === null || ch === "") {
-  // Trouver le dernier slot rempli (chiffre réel)
-  var lastFilled = -1;
-  for (var i = slots.length - 1; i >= 0; i--) {
-    var c = cur.charAt(slots[i]);
-    if (c !== 'j' && c !== 'm' && c !== 'a') { lastFilled = slots[i]; break; }
-  }
-  if (lastFilled >= 0) {
-    var arr = cur.split('');
-    arr[lastFilled] = ph(lastFilled);
-    event.value = arr.join('');
-    // Replacer le curseur sur ce slot
-    event.target.select(lastFilled, lastFilled + 1);
-  }
-  event.rc = false;
-  return;
-}
-
-// ── Saisie d'un caractère ────────────────────────────────────────────────────
-// Rejeter tout ce qui n'est pas un chiffre
-if (!/^[0-9]$/.test(ch)) {
-  event.rc = false;
-  return;
-}
-
-// Trouver le premier slot vide (placeholder)
-var pos = -1;
-for (var i = 0; i < slots.length; i++) {
-  var c = cur.charAt(slots[i]);
-  if (c === 'j' || c === 'm' || c === 'a') { pos = slots[i]; break; }
-}
-
-// Masque déjà complet → bloquer
-if (pos === -1) {
-  event.rc = false;
-  return;
-}
-
-// Écrire le chiffre à la bonne position
-var arr = cur.split('');
-arr[pos] = ch;
-event.value = arr.join('');
-
-// Avancer le curseur sur le prochain slot vide (sauter les '/')
-var nextPos = -1;
-for (var i = 0; i < slots.length; i++) {
-  if (slots[i] > pos) {
-    var c = event.value.charAt(slots[i]);
-    if (c === 'j' || c === 'm' || c === 'a') { nextPos = slots[i]; break; }
-  }
-}
-if (nextPos !== -1) {
-  event.target.select(nextPos, nextPos + 1);
-} else {
-  // Masque complet : positionner après le dernier chiffre
-  event.target.select(10, 10);
-}
-
-event.rc = false;
-`.trim();
-
-  // ── Format (F) : affiché après validation/perte de focus ────────────────────
-  const fJS = `
-var v = event.value;
-if (!v || v === "" || v === "jj/mm/aaaa") {
-  event.value = "jj/mm/aaaa";
-  return;
-}
-// Si le masque est partiellement rempli, laisser tel quel (pas de reformatage)
-`.trim();
-
-  // ── Validate (V) : accepte le masque vide OU une vraie date DD/MM/YYYY ──────
-  const vJS = `
-var v = event.value;
-if (!v || v === "" || v === "jj/mm/aaaa") {
-  event.rc = true;
-  return;
-}
-var m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-if (!m) { event.rc = false; return; }
-var d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3],10);
-var dt = new Date(y, mo - 1, d);
-event.rc = (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d);
-if (!event.rc) {
-  app.alert("Date invalide : " + v + "\\nFormat attendu : jj/mm/aaaa", 1);
-}
-`.trim();
-
-  addAA(doc, tf, 'Fo', foJS);
-  addAA(doc, tf, 'K',  kJS);
-  addAA(doc, tf, 'F',  fJS);
-  addAA(doc, tf, 'V',  vJS);
-}
-
 // ── EXPORT ──────────────────────────────────────────────────────────────────
+
+// Helper export : découper f._dateValue en [jj, mm, aaaa]
+function splitDateValueExport(v) {
+  if (!v) return ['','',''];
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? [m[1], m[2], m[3]] : ['','',''];
+}
+
+// AA Keystroke pour champ JJ ou MM ou AAAA :
+// - n'accepte que les chiffres
+// - quand maxLen chiffres saisis, passe le focus au champ suivant (nextName)
+// Fonctionne dans Acrobat Reader/Pro. Chrome PDF viewer l'ignore (maxLength suffit).
+function addDateFieldAA(doc, tf, maxLen, nextName) {
+  const kJS = (
+    'if (!event.willCommit) {' +
+    '  var ch = event.change;' +
+    '  if (ch !== null && ch !== "" && !/^[0-9]$/.test(ch)) { event.rc = false; return; }' +
+    '  var v = event.value || "";' +
+    '  var digits = v.replace(/[^0-9]/g,"");' +
+    '  if (digits.length >= ' + maxLen + ' && ch !== null && ch !== "") { event.rc = false; return; }' +
+    (nextName ? (
+    '  if (digits.length === ' + (maxLen-1) + ' && ch !== null && ch !== "") {' +
+    '    var nf = this.getField("' + nextName + '");' +
+    '    if (nf) { event.value = digits + ch; nf.setFocus(); event.rc = false; return; }' +
+    '  }'
+    ) : '') +
+    '}'
+  );
+  try {
+    const ctx = doc.context;
+    const aaKey = PDFLib.PDFName.of('AA');
+    const kKey  = PDFLib.PDFName.of('K');
+    let aaDict = tf.acroField.dict.lookupMaybe(aaKey);
+    if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
+    aaDict.set(kKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(kJS) }));
+    tf.acroField.dict.set(aaKey, aaDict);
+  } catch(e) { console.warn('addDateFieldAA:', e.message); }
+}
+
 function clean(t) {
   if (!t) return '';
   return t.replace(/[\u2750-\u2767\u25a0-\u25ff\u2610-\u2612]/g,'[]')
@@ -666,14 +531,15 @@ function clean(t) {
 async function exportPdf() {
   if (!S.fields.length) { notify('Ajoute au moins un champ.','error'); return; }
 
-  // Synchroniser les valeurs des inputs date visibles avant export
-  document.querySelectorAll('.date-mask-input').forEach(input => {
-    const id = input.closest('.field-el')?.dataset.id;
-    const f  = id && S.fields.find(x => x.id === id);
-    if (f) {
-      const v = input.value;
-      f._dateValue = /^\d{2}\/\d{2}\/\d{4}$/.test(v) ? v : '';
-    }
+  // Synchroniser les valeurs des 3 inputs date (JJ/MM/AAAA) avant export
+  document.querySelectorAll('.field-el').forEach(el => {
+    const id = el.dataset.id;
+    const f  = S.fields.find(x => x.id === id);
+    if (!f || f.type !== 'date') return;
+    const ij = el.querySelector('.dj');
+    const im = el.querySelector('.dm');
+    const ia = el.querySelector('.da');
+    if (ij && im && ia) saveDateValue(ij, im, ia, f);
   });
   loading('Génération du PDF remplissable...');
   try {
@@ -713,18 +579,43 @@ async function exportPdf() {
           if (f.required) tf.enableRequired();
 
         } else if (f.type==='date') {
-          const tf = form.createTextField(name);
-          tf.addToPage(pg, { x:pdfX, y:pdfY, width:pdfW, height:pdfH, borderWidth:0.7, borderColor:blue, backgroundColor:bg });
-          setTextFieldFontSize(doc, tf, fs);
-          // Valeur initiale : date saisie dans l'UI ou masque vide
-          try {
-            const initVal = f._dateValue || 'jj/mm/aaaa';
-            tf.acroField.dict.set(PDFLib.PDFName.of('V'),  PDFLib.PDFString.of(initVal));
-            tf.acroField.dict.set(PDFLib.PDFName.of('DV'), PDFLib.PDFString.of('jj/mm/aaaa'));
-          } catch(e) { /* silencieux */ }
-          // Scripts Acrobat AA (masque interactif dans Acrobat Reader / Pro)
-          addDatePickerAction(doc, tf, fs);
-          if (f.required) tf.enableRequired();
+          // 3 champs separes JJ / MM / AAAA — fonctionne dans Chrome, Acrobat, et tous viewers
+          const [initJ, initM, initA] = splitDateValueExport(f._dateValue);
+          const sepW  = Math.max(pdfW * 0.06, 4);
+          const totalFields = pdfW - sepW * 2;
+          const wJ = Math.round(totalFields * 2/8);
+          const wM = Math.round(totalFields * 2/8);
+          const wA = totalFields - wJ - wM;
+          let cx = pdfX;
+
+          const tfJ = form.createTextField(name+'_jj');
+          tfJ.addToPage(pg, { x:cx, y:pdfY, width:wJ, height:pdfH,
+            borderWidth:0.7, borderColor:blue, backgroundColor:bg });
+          setTextFieldFontSize(doc, tfJ, fs);
+          tfJ.setMaxLength(2);
+          try { tfJ.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initJ||'jj')); } catch(e){}
+          addDateFieldAA(doc, tfJ, 2, name+'_mm');
+          if (f.required) tfJ.enableRequired();
+          cx += wJ + sepW;
+
+          const tfM = form.createTextField(name+'_mm');
+          tfM.addToPage(pg, { x:cx, y:pdfY, width:wM, height:pdfH,
+            borderWidth:0.7, borderColor:blue, backgroundColor:bg });
+          setTextFieldFontSize(doc, tfM, fs);
+          tfM.setMaxLength(2);
+          try { tfM.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initM||'mm')); } catch(e){}
+          addDateFieldAA(doc, tfM, 2, name+'_aaaa');
+          if (f.required) tfM.enableRequired();
+          cx += wM + sepW;
+
+          const tfA = form.createTextField(name+'_aaaa');
+          tfA.addToPage(pg, { x:cx, y:pdfY, width:wA, height:pdfH,
+            borderWidth:0.7, borderColor:blue, backgroundColor:bg });
+          setTextFieldFontSize(doc, tfA, fs);
+          tfA.setMaxLength(4);
+          try { tfA.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initA||'aaaa')); } catch(e){}
+          addDateFieldAA(doc, tfA, 4, null);
+          if (f.required) tfA.enableRequired();
 
         } else if (f.type==='checkbox') {
           const cb = form.createCheckBox(name);
