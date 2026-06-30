@@ -172,7 +172,7 @@ function importExistingFields(doc) {
   const handled = new Set();
   fields.forEach(f => {
     const m = f.getName().match(/^(.+)_(jj|mm|aaaa)$/);
-    if (m && f.constructor.name === 'PDFTextField') {
+    if (m && f instanceof PDFLib.PDFTextField) {
       dateGroups[m[1]] = dateGroups[m[1]] || {};
       dateGroups[m[1]][m[2]] = f;
     }
@@ -232,10 +232,9 @@ function importExistingFields(doc) {
     const pgH = pageHeights[pageIndex] || 841.89;
 
     let type = null, options = [];
-    const ctorName = f.constructor.name;
-    if (ctorName === 'PDFTextField') type = 'text';
-    else if (ctorName === 'PDFCheckBox') type = 'checkbox';
-    else if (ctorName === 'PDFDropdown' || ctorName === 'PDFOptionList') {
+    if (f instanceof PDFLib.PDFTextField) type = 'text';
+    else if (f instanceof PDFLib.PDFCheckBox) type = 'checkbox';
+    else if (f instanceof PDFLib.PDFDropdown || f instanceof PDFLib.PDFOptionList) {
       type = 'select';
       try { options = f.getOptions() || []; } catch(e) {}
     }
