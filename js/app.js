@@ -273,7 +273,13 @@ async function renderPage() {
   c.width = vp.width; c.height = vp.height;
   const ov = document.getElementById('overlay');
   ov.style.width = vp.width+'px'; ov.style.height = vp.height+'px';
-  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  // annotationMode: DISABLE — pdf.js dessine par défaut l'apparence des
+  // champs de formulaire (bordure/fond) directement dans le canvas. Comme
+  // l'app gère déjà l'affichage de TOUS les champs via son propre overlay
+  // (renderFields), on désactive ce rendu natif pour éviter tout reliquat
+  // visuel d'un champ importé déplacé ou supprimé (l'ancien widget restait
+  // visible à l'écran même après déplacement, jusqu'à export).
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.DISABLE }).promise;
   document.getElementById('page-counter').textContent = 'Page '+S.page+' / '+S.total;
   document.querySelectorAll('.thumb').forEach((t,i) => t.classList.toggle('active', i+1===S.page));
   renderFields();
@@ -287,7 +293,7 @@ async function buildThumbs() {
     const vp = page.getViewport({ scale: 0.18 });
     const c = document.createElement('canvas');
     c.width = vp.width; c.height = vp.height;
-    await page.render({ canvasContext:c.getContext('2d'), viewport:vp }).promise;
+    await page.render({ canvasContext:c.getContext('2d'), viewport:vp, annotationMode: pdfjsLib.AnnotationMode.DISABLE }).promise;
     const w = document.createElement('div');
     w.className = 'thumb'+(i===1?' active':'');
     w.appendChild(c);
