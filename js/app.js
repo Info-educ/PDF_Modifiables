@@ -10,6 +10,14 @@ let clipboardField = null;
 let pasteOffset = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
+  // pdf.js est chargé en defer : on positionne le worker ici, une fois la lib réellement prête.
+  pdfjsLib.GlobalWorkerOptions.workerSrc = window.__WORKER__;
+
+  // Avertir avant de quitter la page si des champs ont été placés sans export
+  window.addEventListener('beforeunload', e => {
+    if (S.fields.length) { e.preventDefault(); e.returnValue = ''; }
+  });
+
   const fi = document.getElementById('file-input');
   document.getElementById('btn-open').onclick = () => fi.click();
   document.getElementById('drop').onclick = () => fi.click();
@@ -70,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const k = e.key.toLowerCase();
     if (k === 'c' && !typing) { e.preventDefault(); copyField(); }
     else if (k === 'v' && !typing) { e.preventDefault(); pasteField(); }
-    else if (k === 'd') { e.preventDefault(); if (!typing) copyField(); pasteField(); }
+    else if (k === 'd' && !typing) { e.preventDefault(); copyField(); pasteField(); }
   });
 });
 
@@ -82,6 +90,11 @@ function esc(s) {
 
 // ── LOAD PDF ──────────────────────────────────────────────────────────────
 async function loadPdf(file) {
+  const MAX_SIZE = 50 * 1024 * 1024; // 50 Mo
+  if (file.size > MAX_SIZE) {
+    notify('Fichier trop volumineux (max 50 Mo).','error');
+    return;
+  }
   loading('Lecture du PDF...');
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = window.__WORKER__;
@@ -116,7 +129,8 @@ async function loadPdf(file) {
     const msgChamps = nbDetectes ? ' — '+nbDetectes+' champ'+(nbDetectes>1?'s':'')+' existant'+(nbDetectes>1?'s':'')+' retrouvé'+(nbDetectes>1?'s':'') : '';
     notify('PDF chargé ('+S.total+' page'+(S.total>1?'s':'')+')'+msgChamps+' ✓','success');
   } catch(e) {
-    console.error(e); notify('Erreur : '+e.message,'error');
+    console.error(e);
+    notify('Le PDF n\'a pas pu être ouvert. Vérifiez que le fichier n\'est pas corrompu.','error');
   }
   done();
 }
@@ -297,7 +311,7 @@ function addField(type) {
   const wrap = document.getElementById('page-wrap');
   saveHist();
   const f = {
-    id:'f'+Date.now(), type,
+    id:'f'+Date.now()+Math.floor(Math.random()*100000), type,
     name: names[type]+'_'+counter[type],
     placeholder: type==='date'?'jj/mm/aaaa':(type==='signature'?'Signature :':''),
     x: Math.round((wrap.offsetWidth/2) - d.w/2),
@@ -356,11 +370,11 @@ function renderFields() {
       // → le mousedown remonte vers el → startDrag se déclenche normalement
       // → le focus natif sur l'input se fait au mouseup si l'user n'a pas dragué
       [ij, im, ia].forEach(inp => {
-        inp.addEventListener('mousedown', e => {
+        ['mousedown','touchstart'].forEach(evt => inp.addEventListener(evt, e => {
           // Sélectionner le champ sans bloquer le drag
           selectField(f.id);
           // Pas de stopPropagation → le drag peut démarrer
-        });
+        }));
       });
 
     } else {
@@ -383,7 +397,7 @@ function renderFields() {
         '</div>';
     }
 
-    el.addEventListener('mousedown', e => {
+    ['mousedown','touchstart'].forEach(evt => el.addEventListener(evt, e => {
       const t = e.target.closest('[data-act]');
       if (t && t.dataset.act === 'delete') { e.stopPropagation(); e.preventDefault(); delField(f.id); return; }
       if (t && t.dataset.act === 'resize') { e.stopPropagation(); e.preventDefault(); startResize(e, f, el); return; }
@@ -392,7 +406,7 @@ function renderFields() {
       if (!e.target.classList.contains('di')) e.preventDefault();
       selectField(f.id);
       startDrag(e, f, el);
-    });
+    }, { passive:false }));
 
     ov.appendChild(el);
   });
@@ -433,11 +447,7 @@ function attachDateInputs(ij, im, ia, f) {
   // Autoriser seulement les chiffres, avancer automatiquement au champ suivant
   function digitOnly(e, inp, maxLen, next) {
     if (e.ctrlKey || e.metaKey) return;
-    if (e.key === 'Tab' || e.key === 'Escape') return;
-    if (e.key === 'Backspace') {
-      if (inp.value === '' && next === null) return; // laisse effacer normalement
-      return; // comportement natif
-    }
+    if (e.key === 'Tab' || e.key === 'Escape' || e.key === 'Backspace') return; // comportement natif
     if (!/^[0-9]$/.test(e.key)) { e.preventDefault(); return; }
     // Si on atteint maxLen après cette frappe → passer au suivant
     if (inp.value.length >= maxLen - 1 && next) {
@@ -454,8 +464,15 @@ function attachDateInputs(ij, im, ia, f) {
   im.addEventListener('keydown', e => { if (e.key==='Backspace' && im.value==='') { ij.focus(); ij.setSelectionRange(2,2); } });
   ia.addEventListener('keydown', e => { if (e.key==='Backspace' && ia.value==='') { im.focus(); im.setSelectionRange(2,2); } });
 
-  // Sauvegarder à chaque frappe
-  [ij,im,ia].forEach(inp => inp.addEventListener('input', () => saveDateValue(ij,im,ia,f)));
+  // Filet de sécurité pour le collage (paste) : digitOnly ne filtre que les
+  // frappes clavier (keydown), pas un collage direct dans un des 3 champs.
+  // On force ici un nettoyage non-numérique sur chaque saisie, quelle que
+  // soit son origine, pour ne jamais afficher de caractères non numériques.
+  [ij,im,ia].forEach(inp => inp.addEventListener('input', () => {
+    const digits = inp.value.replace(/\D/g,'');
+    if (digits !== inp.value) inp.value = digits;
+    saveDateValue(ij,im,ia,f);
+  }));
 
   // Sélectionner tout au focus pour faciliter la correction
   [ij,im,ia].forEach(inp => inp.addEventListener('focus', () => inp.select()));
@@ -480,15 +497,21 @@ function attachDateInputs(ij, im, ia, f) {
 
 
 // FIX DRAG : on déplace directement l'élément DOM, sans renderFields() pendant le move
+// Gère aussi bien la souris (mousedown/mousemove/mouseup) que le tactile
+// (touchstart/touchmove/touchend), indispensable sur tablette (usage fréquent
+// en établissement scolaire) où il n'y a ni souris ni trackpad.
 function startDrag(e, f, el) {
   const ov = document.getElementById('overlay');
   const ovRect = ov.getBoundingClientRect();
-  const offX = e.clientX - ovRect.left - f.x;
-  const offY = e.clientY - ovRect.top - f.y;
+  const point = e.touches ? e.touches[0] : e;
+  const offX = point.clientX - ovRect.left - f.x;
+  const offY = point.clientY - ovRect.top - f.y;
 
   const move = me => {
-    let nx = me.clientX - ovRect.left - offX;
-    let ny = me.clientY - ovRect.top - offY;
+    if (me.cancelable) me.preventDefault();
+    const p = me.touches ? me.touches[0] : me;
+    let nx = p.clientX - ovRect.left - offX;
+    let ny = p.clientY - ovRect.top - offY;
     nx = Math.max(0, Math.min(nx, ov.offsetWidth - f.w));
     ny = Math.max(0, Math.min(ny, ov.offsetHeight - f.h));
     f.x = Math.round(nx); f.y = Math.round(ny);
@@ -499,25 +522,41 @@ function startDrag(e, f, el) {
   const up = () => {
     document.removeEventListener('mousemove', move);
     document.removeEventListener('mouseup', up);
+    document.removeEventListener('touchmove', move);
+    document.removeEventListener('touchend', up);
+    document.removeEventListener('touchcancel', up);
   };
   document.addEventListener('mousemove', move);
   document.addEventListener('mouseup', up);
+  document.addEventListener('touchmove', move, { passive:false });
+  document.addEventListener('touchend', up);
+  document.addEventListener('touchcancel', up);
 }
 
 function startResize(e, f, el) {
-  const sw=f.w, sh=f.h, sx=e.clientX, sy=e.clientY;
+  const sw=f.w, sh=f.h;
+  const point = e.touches ? e.touches[0] : e;
+  const sx=point.clientX, sy=point.clientY;
   const move = me => {
-    f.w = Math.max(14, Math.round(sw + me.clientX - sx));
-    f.h = Math.max(12, Math.round(sh + me.clientY - sy));
+    if (me.cancelable) me.preventDefault();
+    const p = me.touches ? me.touches[0] : me;
+    f.w = Math.max(14, Math.round(sw + p.clientX - sx));
+    f.h = Math.max(12, Math.round(sh + p.clientY - sy));
     el.style.width = f.w+'px'; el.style.height = f.h+'px';
     setSize(f);
   };
   const up = () => {
     document.removeEventListener('mousemove', move);
     document.removeEventListener('mouseup', up);
+    document.removeEventListener('touchmove', move);
+    document.removeEventListener('touchend', up);
+    document.removeEventListener('touchcancel', up);
   };
   document.addEventListener('mousemove', move);
   document.addEventListener('mouseup', up);
+  document.addEventListener('touchmove', move, { passive:false });
+  document.addEventListener('touchend', up);
+  document.addEventListener('touchcancel', up);
 }
 
 function setPos(f) {
@@ -534,8 +573,10 @@ function syncProps() {
   const f = cur(); if(!f) return;
   f.name = document.getElementById('p-name').value;
   f.placeholder = document.getElementById('p-ph').value;
-  f.x = parseInt(document.getElementById('p-x').value)||f.x;
-  f.y = parseInt(document.getElementById('p-y').value)||f.y;
+  const nx = parseInt(document.getElementById('p-x').value, 10);
+  const ny = parseInt(document.getElementById('p-y').value, 10);
+  f.x = Number.isNaN(nx) ? f.x : nx;
+  f.y = Number.isNaN(ny) ? f.y : ny;
   f.required = document.getElementById('p-req').value==='true';
   renderFields();
 }
@@ -707,16 +748,13 @@ function setTextFieldFontSize(doc, tf, fontSize, isMultiline) {
 
 // ── EXPORT ──────────────────────────────────────────────────────────────────
 
-// Helper export : découper f._dateValue en [jj, mm, aaaa]
-function splitDateValueExport(v) {
-  if (!v) return ['','',''];
-  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  return m ? [m[1], m[2], m[3]] : ['','',''];
-}
+// Helper export : découper f._dateValue en [jj, mm, aaaa] (même logique que splitDateValue,
+// utilisée ici aussi pour garder l'export indépendant du rendu si l'un des deux évolue).
 
 function clean(t) {
   if (!t) return '';
-  return t.replace(/[\u2750-\u2767\u25a0-\u25ff\u2610-\u2612]/g,'[]')
+  return t.replace(/œ/g,'oe').replace(/Œ/g,'OE').replace(/€/g,'EUR')
+          .replace(/[\u2750-\u2767\u25a0-\u25ff\u2610-\u2612]/g,'[]')
           .replace(/[\u2013\u2014]/g,'-').replace(/[\u2018\u2019]/g,"'")
           .replace(/[\u201C\u201D]/g,'"').replace(/\u2026/g,'...')
           .replace(/\u00A0/g,' ').replace(/[\u2022\u2023\u2043]/g,'-')
@@ -725,6 +763,9 @@ function clean(t) {
 
 async function exportPdf() {
   if (!S.fields.length) { notify('Ajoute au moins un champ.','error'); return; }
+  const btnExport = document.getElementById('btn-export');
+  if (btnExport.disabled) return; // export déjà en cours
+  btnExport.disabled = true;
 
   // Synchroniser les valeurs des 3 inputs date (JJ/MM/AAAA) avant export
   document.querySelectorAll('.field-el').forEach(el => {
@@ -785,7 +826,7 @@ async function exportPdf() {
 
         } else if (f.type==='date') {
           // 3 champs separes JJ / MM / AAAA — fonctionne dans Chrome, Acrobat, et tous viewers
-          const [initJ, initM, initA] = splitDateValueExport(f._dateValue);
+          const [initJ, initM, initA] = splitDateValue(f._dateValue);
           const sepW  = Math.max(pdfW * 0.06, 4);
           const totalFields = pdfW - sepW * 2;
           const wJ = Math.round(totalFields * 2/8);
@@ -940,9 +981,12 @@ async function exportPdf() {
     setTimeout(()=>URL.revokeObjectURL(url),60000);
     notify('PDF remplissable exporté et vérifié ✓','success');
   } catch(e) {
-    console.error(e); notify('Erreur export : '+e.message,'error');
+    console.error(e);
+    notify('Le PDF n\'a pas pu être généré. Vérifiez le fichier source ou réessayez.','error');
+  } finally {
+    btnExport.disabled = false;
+    done();
   }
-  done();
 }
 
 // ── UI UTILS ────────────────────────────────────────────────────────────────

@@ -8,7 +8,8 @@
   --success:#3B6D11; --success-light:#EAF3DE;
   --radius:8px; --radius-lg:12px;
 }
-body { font-family:system-ui,-apple-system,sans-serif; background:#f5f4f0; color:var(--text); height:100vh; overflow:hidden; }
+body { font-family:system-ui,-apple-system,sans-serif; background:#f5f4f0; color:var(--text); height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 /* HEADER */
 header { background:var(--white); border-bottom:1px solid var(--border); padding:10px 20px; display:flex; align-items:center; gap:12px; }
@@ -17,8 +18,8 @@ header h1 { font-size:16px; font-weight:600; }
 header .sub { font-size:12px; color:var(--text-sec); }
 
 /* TOOLBAR */
-.toolbar { background:var(--white); border-bottom:1px solid var(--border); padding:8px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.btn { padding:7px 13px; border-radius:var(--radius); font-size:13px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:var(--white); color:var(--text); display:flex; align-items:center; gap:6px; white-space:nowrap; transition:all .15s; }
+.toolbar { background:var(--white); border-bottom:1px solid var(--border); padding:8px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex-shrink:0; }
+.btn { padding:7px 13px; min-height:44px; border-radius:var(--radius); font-size:13px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:var(--white); color:var(--text); display:flex; align-items:center; gap:6px; white-space:nowrap; transition:all .15s; }
 .btn:hover { border-color:var(--blue-mid); background:var(--blue-light); color:var(--blue); }
 .btn:disabled { opacity:.4; cursor:not-allowed; }
 .btn.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
@@ -28,12 +29,21 @@ header .sub { font-size:12px; color:var(--text-sec); }
 .tlabel { font-size:13px; color:var(--text-sec); margin-right:2px; }
 .spacer { flex:1; }
 .page-nav { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-sec); }
-.page-nav button { padding:4px 9px; border:1px solid var(--border); border-radius:5px; cursor:pointer; background:#fff; font-size:13px; }
+.page-nav button { padding:4px 9px; min-height:44px; min-width:44px; border:1px solid var(--border); border-radius:5px; cursor:pointer; background:#fff; font-size:13px; }
 .page-nav button:hover { background:var(--gray-light); }
 
-/* LAYOUT */
-.layout { display:grid; grid-template-columns:1fr 230px; height:calc(100vh - 99px); }
+/* LAYOUT — flex:1 + min-height:0 plutôt qu'une hauteur calc() en dur, pour
+   absorber correctement le toolbar quel que soit son nombre de lignes
+   (il peut passer sur 2 lignes en flex-wrap sur petit écran). */
+.layout { display:grid; grid-template-columns:1fr 230px; flex:1; min-height:0; }
 .canvas-area { overflow:auto; background:#e8e6e0; display:flex; justify-content:center; padding:24px; }
+
+/* RESPONSIVE — tablette/mobile (fréquent en établissement scolaire) */
+@media (max-width: 900px) {
+  .layout { grid-template-columns:1fr; grid-template-rows:1fr auto; }
+  .side { border-left:none; border-top:1px solid var(--border); max-height:38vh; }
+  .thumbs { display:none; }
+}
 
 /* EMPTY / DROP */
 .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; gap:18px; }

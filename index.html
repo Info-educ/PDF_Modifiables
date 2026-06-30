@@ -24,19 +24,26 @@
   <!-- Empêcher la mise en cache par les proxies et CDN -->
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
+<meta name="description" content="Outil interne de création de PDF remplissables — Collège Joliot Curie">
 <title>PDF Modifiables</title>
 <link rel="stylesheet" href="css/styles.css">
-<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- defer : laisse le HTML se parser sans être bloqué par le téléchargement des
+     librairies. defer préserve l'ordre d'exécution (pdf-lib → pdf.js → app.js),
+     tous exécutés avant DOMContentLoaded, donc app.js peut s'appuyer sur
+     PDFLib/pdfjsLib dès son code de plus haut niveau. -->
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
 <script>
+  // Ne dépend pas de pdfjsLib : peut s'exécuter immédiatement, sans defer.
+  // pdfjsLib.GlobalWorkerOptions est positionné dans app.js (DOMContentLoaded),
+  // une fois pdf.js réellement chargé.
   window.__WORKER__ = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  pdfjsLib.GlobalWorkerOptions.workerSrc = window.__WORKER__;
 </script>
 </head>
 <body>
 
-<!-- ── TOOLBAR ──────────────────────────────────────────────────────── -->
-<div class="toolbar">
+<header class="toolbar">
+  <h1 class="sr-only">PDF Modifiables — Champs PDF, Collège Joliot Curie</h1>
   <!-- Ouvrir -->
   <button id="btn-open" class="btn">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -137,10 +144,10 @@
     </svg>
     Exporter PDF
   </button>
-</div>
+</header>
 
 <!-- ── LAYOUT ────────────────────────────────────────────────────────── -->
-<div class="layout">
+<main class="layout">
 
   <!-- Zone canvas + drop -->
   <div id="canvas-area" class="canvas-area">
@@ -191,26 +198,26 @@
 
       <!-- Nom -->
       <div class="pg">
-        <label class="plabel">Nom du champ</label>
+        <label class="plabel" for="p-name">Nom du champ</label>
         <input id="p-name" class="pin" type="text" placeholder="nom_champ">
       </div>
 
       <!-- Placeholder (masqué pour checkbox) -->
       <div id="g-placeholder" class="pg">
-        <label id="lbl-ph" class="plabel">Texte indicatif</label>
+        <label id="lbl-ph" class="plabel" for="p-ph">Texte indicatif</label>
         <input id="p-ph" class="pin" type="text" placeholder="ex : Votre prénom">
       </div>
 
       <!-- Position -->
       <div class="pg">
-        <label class="plabel">Position (px)</label>
+        <span class="plabel">Position (px)</span>
         <div class="prow">
           <div>
-            <label class="plabel" style="margin-bottom:2px;">X</label>
+            <label class="plabel" for="p-x" style="margin-bottom:2px;">X</label>
             <input id="p-x" class="pin" type="number" min="0">
           </div>
           <div>
-            <label class="plabel" style="margin-bottom:2px;">Y</label>
+            <label class="plabel" for="p-y" style="margin-bottom:2px;">Y</label>
             <input id="p-y" class="pin" type="number" min="0">
           </div>
         </div>
@@ -218,13 +225,13 @@
 
       <!-- Taille -->
       <div class="pg">
-        <label class="plabel">Largeur — <span id="v-w">120</span> px</label>
+        <label class="plabel" for="p-w">Largeur — <span id="v-w">120</span> px</label>
         <div class="slider-row">
           <input id="p-w" type="range" min="20" max="600" value="120">
         </div>
       </div>
       <div class="pg">
-        <label class="plabel">Hauteur — <span id="v-h">22</span> px</label>
+        <label class="plabel" for="p-h">Hauteur — <span id="v-h">22</span> px</label>
         <div class="slider-row">
           <input id="p-h" type="range" min="10" max="200" value="22">
         </div>
@@ -232,7 +239,7 @@
 
       <!-- Taille de police (masqué pour checkbox) -->
       <div id="g-fontsize" class="pg">
-        <label class="plabel">Taille police — <span id="v-fs">10</span> pt</label>
+        <label class="plabel" for="p-fs">Taille police — <span id="v-fs">10</span> pt</label>
         <div class="slider-row">
           <input id="p-fs" type="range" min="6" max="36" value="10">
         </div>
@@ -240,7 +247,7 @@
 
       <!-- Requis -->
       <div id="g-required" class="pg">
-        <label class="plabel">Champ obligatoire</label>
+        <label class="plabel" for="p-req">Champ obligatoire</label>
         <select id="p-req" class="pin">
           <option value="false">Non</option>
           <option value="true">Oui</option>
@@ -257,8 +264,8 @@
     </div><!-- /props -->
   </div><!-- /side -->
 
-</div><!-- /layout -->
+</main><!-- /layout -->
 
-<script src="js/app.js"></script>
+<script src="js/app.js" defer></script>
 </body>
 </html>
