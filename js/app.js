@@ -528,7 +528,7 @@ function undo() {
  *
  *  Aucun JavaScript requis.
  */
-function setTextFieldFontSize(doc, tf, fontSize) {
+function setTextFieldFontSize(doc, tf, fontSize, isMultiline) {
   const daString = `/Helvetica ${fontSize} Tf 0 g`;
   const daValue = PDFLib.PDFString.of(daString);
 
@@ -539,15 +539,24 @@ function setTextFieldFontSize(doc, tf, fontSize) {
   });
   tf.acroField.dict.set(PDFLib.PDFName.of('DA'), daValue);
 
-  // Flags : Multiline ON + DoNotScroll ON
-  try {
-    const ffKey = PDFLib.PDFName.of('Ff');
-    let ffVal = tf.acroField.dict.lookupMaybe(ffKey);
-    let ffNum = ffVal ? ffVal.asNumber() : 0;
-    ffNum |= (1 << 12); // Multiline
-    ffNum |= (1 << 23); // DoNotScroll
-    tf.acroField.dict.set(ffKey, PDFLib.PDFNumber.of(ffNum));
-  } catch(e) { /* fallback silencieux */ }
+  // Flags Multiline + DoNotScroll : UNIQUEMENT pour les champs réellement
+  // multiligne (auto-size, fontSize=0). Pour un champ court à 1 ligne
+  // (texte_1, ou les sous-champs date jj/mm/aaaa), forcer Multiline+
+  // DoNotScroll sur une hauteur d'1 ligne fait que certains lecteurs stricts
+  // (Acrobat Reader Android) ne réaffichent que le dernier caractère tapé
+  // pendant la saisie (la valeur reste correcte, seul l'affichage est cassé).
+  // Sans ces flags, le champ reste un champ 1 ligne classique avec défilement
+  // horizontal natif — comportement standard et fiable.
+  if (isMultiline) {
+    try {
+      const ffKey = PDFLib.PDFName.of('Ff');
+      let ffVal = tf.acroField.dict.lookupMaybe(ffKey);
+      let ffNum = ffVal ? ffVal.asNumber() : 0;
+      ffNum |= (1 << 12); // Multiline
+      ffNum |= (1 << 23); // DoNotScroll
+      tf.acroField.dict.set(ffKey, PDFLib.PDFNumber.of(ffNum));
+    } catch(e) { /* fallback silencieux */ }
+  }
 }
 
 // ── EXPORT ──────────────────────────────────────────────────────────────────
@@ -625,7 +634,7 @@ async function exportPdf() {
           // on utilise fontSize=0 (auto-size natif PDF, comme le GEVA-Sco)
           // Sinon on fixe la taille choisie par l'utilisateur (champ 1 ligne)
           const isMultiline = pdfH > fs * 2.5;
-          setTextFieldFontSize(doc, tf, isMultiline ? 0 : fs);
+          setTextFieldFontSize(doc, tf, isMultiline ? 0 : fs, isMultiline);
           if (f.required) tf.enableRequired();
 
         } else if (f.type==='date') {
@@ -641,7 +650,7 @@ async function exportPdf() {
           const tfJ = form.createTextField(name+'_jj');
           tfJ.addToPage(pg, { x:cx, y:pdfY, width:wJ, height:pdfH,
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
-          setTextFieldFontSize(doc, tfJ, fs);
+          setTextFieldFontSize(doc, tfJ, fs, false);
           tfJ.setMaxLength(2);
           try { tfJ.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Jour (JJ)')); } catch(e){}
           if (/^\d{2}$/.test(initJ)) { try { tfJ.setText(initJ); } catch(e){} }
@@ -651,7 +660,7 @@ async function exportPdf() {
           const tfM = form.createTextField(name+'_mm');
           tfM.addToPage(pg, { x:cx, y:pdfY, width:wM, height:pdfH,
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
-          setTextFieldFontSize(doc, tfM, fs);
+          setTextFieldFontSize(doc, tfM, fs, false);
           tfM.setMaxLength(2);
           try { tfM.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Mois (MM)')); } catch(e){}
           if (/^\d{2}$/.test(initM)) { try { tfM.setText(initM); } catch(e){} }
@@ -661,7 +670,7 @@ async function exportPdf() {
           const tfA = form.createTextField(name+'_aaaa');
           tfA.addToPage(pg, { x:cx, y:pdfY, width:wA, height:pdfH,
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
-          setTextFieldFontSize(doc, tfA, fs);
+          setTextFieldFontSize(doc, tfA, fs, false);
           tfA.setMaxLength(4);
           try { tfA.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Année (AAAA)')); } catch(e){}
           if (/^\d{4}$/.test(initA)) { try { tfA.setText(initA); } catch(e){} }
