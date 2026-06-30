@@ -545,18 +545,6 @@ function setTextFieldFontSize(doc, tf, fontSize) {
     tf.acroField.dict.set(ffKey, PDFLib.PDFNumber.of(ffNum));
   } catch(e) { /* fallback silencieux */ }
 }
-function addAA(doc, tf, trigger, jsCode) {
-  try {
-    const acroField = tf.acroField;
-    const ctx = doc.context;
-    const aaKey = PDFLib.PDFName.of('AA');
-    const triggerKey = PDFLib.PDFName.of(trigger);
-    let aaDict = acroField.dict.lookup(aaKey);
-    if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
-    aaDict.set(triggerKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(jsCode) }));
-    acroField.dict.set(aaKey, aaDict);
-  } catch(e) { console.warn('addAA:', e.message); }
-}
 
 // ── EXPORT ──────────────────────────────────────────────────────────────────
 
@@ -565,55 +553,6 @@ function splitDateValueExport(v) {
   if (!v) return ['','',''];
   const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m ? [m[1], m[2], m[3]] : ['','',''];
-}
-
-// AA Keystroke pour champ JJ ou MM ou AAAA :
-// - n'accepte que les chiffres
-// - quand maxLen chiffres saisis, passe le focus au champ suivant (nextName)
-// Fonctionne dans Acrobat Reader/Pro. Chrome PDF viewer l'ignore (maxLength suffit).
-function addDateFieldAA(doc, tf, maxLen, nextName) {
-  // ── Focus (Fo) : curseur tout à gauche dès le clic ──────────────────────
-  const foJS =
-    'event.target.select(0, 0);';
-
-  // ── Keystroke (K) : chiffres uniquement + tab auto après maxLen chiffres ─
-  // event.value = valeur avant la frappe
-  // event.change = caractère tapé (null/"" = effacement)
-  // On reconstruit la valeur manuellement pour garder le contrôle total.
-  const kJS =
-    'if (event.willCommit) return;' +
-    'var ch = event.change;' +
-    'if (ch !== null && ch !== "" && !/^[0-9]$/.test(ch)) { event.rc = false; return; }' +
-    'var cur = (event.value || "").replace(/[^0-9]/g, "");' +
-    // Effacement
-    'if (ch === null || ch === "") { event.rc = true; return; }' +
-    // Champ déjà plein → bloquer
-    'if (cur.length >= ' + maxLen + ') { event.rc = false; return; }' +
-    // Avant-dernier chiffre → laisser passer normalement
-    'event.rc = true;' +
-    // Dernier chiffre → écrire et sauter au champ suivant
-    'if (cur.length === ' + (maxLen - 1) + ') {' +
-    '  event.value = cur + ch;' +
-    (nextName
-      ? '  var nf = this.getField("' + nextName + '"); if (nf) { nf.setFocus(); nf.select(0,0); }'
-      : '') +
-    '  event.rc = false;' +
-    '}';
-
-  function setAA(trigger, js) {
-    try {
-      const ctx    = doc.context;
-      const aaKey  = PDFLib.PDFName.of('AA');
-      const tKey   = PDFLib.PDFName.of(trigger);
-      let aaDict   = tf.acroField.dict.lookup(aaKey);
-      if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
-      aaDict.set(tKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(js) }));
-      tf.acroField.dict.set(aaKey, aaDict);
-    } catch(e) { console.warn('addDateFieldAA', trigger, e.message); }
-  }
-
-  setAA('Fo', foJS);
-  setAA('K',  kJS);
 }
 
 function clean(t) {
@@ -701,7 +640,6 @@ async function exportPdf() {
           setTextFieldFontSize(doc, tfJ, fs);
           tfJ.setMaxLength(2);
           try { tfJ.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initJ||'jj')); } catch(e){}
-          addDateFieldAA(doc, tfJ, 2, name+'_mm');
           if (f.required) tfJ.enableRequired();
           cx += wJ + sepW;
 
@@ -711,7 +649,6 @@ async function exportPdf() {
           setTextFieldFontSize(doc, tfM, fs);
           tfM.setMaxLength(2);
           try { tfM.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initM||'mm')); } catch(e){}
-          addDateFieldAA(doc, tfM, 2, name+'_aaaa');
           if (f.required) tfM.enableRequired();
           cx += wM + sepW;
 
@@ -721,7 +658,6 @@ async function exportPdf() {
           setTextFieldFontSize(doc, tfA, fs);
           tfA.setMaxLength(4);
           try { tfA.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initA||'aaaa')); } catch(e){}
-          addDateFieldAA(doc, tfA, 4, null);
           if (f.required) tfA.enableRequired();
 
         } else if (f.type==='checkbox') {
@@ -762,7 +698,56 @@ async function exportPdf() {
       } catch(err) { console.warn('Champ ignoré',name,err.message); }
     }
 
+    // pdf-lib ne renseigne jamais /AcroForm/DR/Font (TODO non résolu dans son
+    // propre code source). Sans ça, la police "/Helv" référencée par chaque /DA
+    // n'est déclarée nulle part au niveau du formulaire — ce que Acrobat valide
+    // strictement (même si chaque widget porte sa propre police en interne).
+    // On l'ajoute donc manuellement pour rester conforme au spec PDF.
+    try {
+      const afDict = form.acroForm.dict;
+      const drRef  = afDict.get(PDFLib.PDFName.of('DR'));
+      let dr = drRef ? doc.context.lookup(drRef) : undefined;
+      if (!dr || typeof dr.set !== 'function') {
+        dr = doc.context.obj({});
+        afDict.set(PDFLib.PDFName.of('DR'), dr);
+      }
+      const fontRef = dr.get(PDFLib.PDFName.of('Font'));
+      let drFont = fontRef ? doc.context.lookup(fontRef) : undefined;
+      if (!drFont || typeof drFont.set !== 'function') {
+        drFont = doc.context.obj({});
+        dr.set(PDFLib.PDFName.of('Font'), drFont);
+      }
+      if (!drFont.get(PDFLib.PDFName.of('Helv'))) {
+        const helvDict = doc.context.obj({
+          Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding',
+        });
+        drFont.set(PDFLib.PDFName.of('Helv'), doc.context.register(helvDict));
+      }
+      // Police de secours générique pour le formulaire (certains viewers la lisent)
+      if (!afDict.get(PDFLib.PDFName.of('DA'))) {
+        afDict.set(PDFLib.PDFName.of('DA'), PDFLib.PDFString.of('/Helv 10 Tf 0 g'));
+      }
+    } catch(e) { console.warn('Réparation DR/Font échouée:', e.message); }
+
     const bytes = await doc.save();
+
+    // ── Vérification post-export ──────────────────────────────────────────
+    // On recharge immédiatement le PDF généré avec pdf.js (le même moteur que
+    // l'aperçu) pour s'assurer qu'il est réellement lisible avant de le
+    // proposer au téléchargement. Mieux vaut bloquer ici avec un message
+    // clair que laisser partir un fichier potentiellement cassé vers un parent.
+    loading('Vérification du PDF généré...');
+    try {
+      const checkDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+      if (checkDoc.numPages < 1) throw new Error('Document vide après vérification');
+      await checkDoc.getPage(1);
+    } catch (verifErr) {
+      console.error('Vérification post-export échouée:', verifErr);
+      notify('Échec : le PDF généré semble invalide. Réessaie, ou contacte le support si ça persiste.','error');
+      done();
+      return;
+    }
+
     const blob = new Blob([bytes], { type:'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -773,7 +758,7 @@ async function exportPdf() {
     // prendre plusieurs secondes à lire le blob. Le révoquer trop tôt (1s avant)
     // produisait un fichier vide ou tronqué = "PDF corrompu" à l'ouverture.
     setTimeout(()=>URL.revokeObjectURL(url),60000);
-    notify('PDF remplissable exporté ✓','success');
+    notify('PDF remplissable exporté et vérifié ✓','success');
   } catch(e) {
     console.error(e); notify('Erreur export : '+e.message,'error');
   }
