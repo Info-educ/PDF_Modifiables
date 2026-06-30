@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('p-fs').oninput = e => {
     const f = cur(); if(!f) return;
     f.fontSize = +e.target.value; document.getElementById('v-fs').textContent = f.fontSize;
+    renderFields();
   };
 
   document.getElementById('canvas-area').addEventListener('mousedown', e => {
@@ -99,15 +100,156 @@ async function loadPdf(file) {
     document.querySelectorAll('.add-field').forEach(b => b.disabled = false);
     document.getElementById('btn-export').disabled = false;
 
+    // Si le PDF chargé contient déjà des champs de formulaire (ex : un PDF déjà
+    // exporté par cet outil), on les relit pour pouvoir continuer à les éditer.
+    // Limite connue : les zones "Signature" ne sont pas de vrais champs PDF
+    // (juste un rectangle dessiné), donc elles ne peuvent pas être détectées.
+    let nbDetectes = 0;
+    try {
+      const formDoc = await PDFDocument.load(S.pdfBytes.slice());
+      nbDetectes = importExistingFields(formDoc);
+    } catch(e) { console.warn('Lecture des champs existants impossible :', e.message); }
+
     await renderPage();
     await buildThumbs();
     renderProps();
-    notify('PDF chargé ('+S.total+' page'+(S.total>1?'s':'')+') ✓','success');
+    const msgChamps = nbDetectes ? ' — '+nbDetectes+' champ'+(nbDetectes>1?'s':'')+' existant'+(nbDetectes>1?'s':'')+' retrouvé'+(nbDetectes>1?'s':'') : '';
+    notify('PDF chargé ('+S.total+' page'+(S.total>1?'s':'')+')'+msgChamps+' ✓','success');
   } catch(e) {
     console.error(e); notify('Erreur : '+e.message,'error');
   }
   done();
 }
+
+// ── RELECTURE DES CHAMPS EXISTANTS ───────────────────────────────────────────
+// Reconstruit S.fields à partir de l'AcroForm d'un PDF déjà exporté par cet
+// outil (ou par un autre outil compatible), pour permettre de les ré-éditer.
+function importExistingFields(doc) {
+  let form, fields;
+  try { form = doc.getForm(); fields = form.getFields(); } catch(e) { return 0; }
+  if (!fields.length) return 0;
+
+  const pages = doc.getPages();
+  const pageHeights = pages.map(p => p.getSize().height);
+
+  function widgetPageIndex(widget) {
+    try {
+      const pRef = widget.dict.get(PDFLib.PDFName.of('P'));
+      if (pRef) {
+        const i = pages.findIndex(p => p.ref && p.ref.toString() === pRef.toString());
+        if (i !== -1) return i;
+      }
+    } catch(e) {}
+    return 0; // repli : première page si on ne sait pas la retrouver
+  }
+
+  function parseFontSize(field) {
+    try {
+      const da = field.acroField.dict.get(PDFLib.PDFName.of('DA'));
+      const str = da && da.asString ? da.asString() : '';
+      const m = str.match(/\/[^\s]+\s+([\d.]+)\s+Tf/);
+      if (m) { const n = parseFloat(m[1]); if (n > 0) return n; }
+    } catch(e) {}
+    return 10; // valeur de repli (ex : champ en taille auto à l'export, fontSize=0)
+  }
+
+  // 1) Regrouper les sous-champs date (base_jj / base_mm / base_aaaa) en un seul champ
+  const dateGroups = {};
+  const handled = new Set();
+  fields.forEach(f => {
+    const m = f.getName().match(/^(.+)_(jj|mm|aaaa)$/);
+    if (m && f.constructor.name === 'PDFTextField') {
+      dateGroups[m[1]] = dateGroups[m[1]] || {};
+      dateGroups[m[1]][m[2]] = f;
+    }
+  });
+
+  const usedCounters = { text:0, checkbox:0, select:0, date:0, signature:0 };
+  function bumpCounter(type, name) {
+    const m = name.match(/_(\d+)$/);
+    if (m) usedCounters[type] = Math.max(usedCounters[type], parseInt(m[1], 10));
+  }
+
+  let imported = 0;
+
+  Object.keys(dateGroups).forEach(base => {
+    const g = dateGroups[base];
+    if (!g.jj || !g.mm || !g.aaaa) return; // groupe incomplet : ignoré
+    handled.add(g.jj.getName()); handled.add(g.mm.getName()); handled.add(g.aaaa.getName());
+    const wJ = g.jj.acroField.getWidgets()[0];
+    const wA = g.aaaa.acroField.getWidgets()[0];
+    if (!wJ || !wA) return;
+    const rJ = wJ.getRectangle(), rA = wA.getRectangle();
+    const pageIndex = widgetPageIndex(wJ);
+    const pgH = pageHeights[pageIndex] || 841.89;
+    const pdfX = rJ.x, pdfY = rJ.y, pdfW = (rA.x + rA.width) - rJ.x, pdfH = rJ.height;
+
+    let dateValue = '';
+    try {
+      const vj=(g.jj.getText()||'').trim(), vm=(g.mm.getText()||'').trim(), va=(g.aaaa.getText()||'').trim();
+      if (/^\d{1,2}$/.test(vj) && /^\d{1,2}$/.test(vm) && /^\d{4}$/.test(va)) {
+        dateValue = vj.padStart(2,'0')+'/'+vm.padStart(2,'0')+'/'+va;
+      }
+    } catch(e) {}
+
+    bumpCounter('date', base);
+    S.fields.push({
+      id: 'f'+Date.now()+Math.floor(Math.random()*100000), type:'date',
+      name: base, placeholder:'jj/mm/aaaa',
+      x: Math.round(pdfX * S.scale),
+      y: Math.round((pgH - pdfY - pdfH) * S.scale),
+      w: Math.round(pdfW * S.scale),
+      h: Math.round(pdfH * S.scale),
+      required: g.jj.isRequired ? g.jj.isRequired() : false,
+      fontSize: parseFontSize(g.jj), options: [], page: pageIndex+1,
+      _dateValue: dateValue,
+    });
+    imported++;
+  });
+
+  // 2) Champs simples (texte, case à cocher, liste déroulante)
+  fields.forEach(f => {
+    const name = f.getName();
+    if (handled.has(name)) return;
+    const widget = f.acroField.getWidgets()[0];
+    if (!widget) return;
+    const rect = widget.getRectangle();
+    const pageIndex = widgetPageIndex(widget);
+    const pgH = pageHeights[pageIndex] || 841.89;
+
+    let type = null, options = [];
+    const ctorName = f.constructor.name;
+    if (ctorName === 'PDFTextField') type = 'text';
+    else if (ctorName === 'PDFCheckBox') type = 'checkbox';
+    else if (ctorName === 'PDFDropdown' || ctorName === 'PDFOptionList') {
+      type = 'select';
+      try { options = f.getOptions() || []; } catch(e) {}
+    }
+    if (!type) return; // type non pris en charge par l'éditeur (ex : bouton) : ignoré
+
+    bumpCounter(type, name);
+    let required = false;
+    try { required = f.isRequired(); } catch(e) {}
+
+    S.fields.push({
+      id: 'f'+Date.now()+Math.floor(Math.random()*100000), type, name,
+      placeholder: '',
+      x: Math.round(rect.x * S.scale),
+      y: Math.round((pgH - rect.y - rect.height) * S.scale),
+      w: Math.round(rect.width * S.scale),
+      h: Math.round(rect.height * S.scale),
+      required,
+      fontSize: type==='checkbox' ? 10 : parseFontSize(f),
+      options: options.length ? options : (type==='select' ? ['Option 1','Option 2'] : []),
+      page: pageIndex+1,
+    });
+    imported++;
+  });
+
+  Object.keys(usedCounters).forEach(t => { counter[t] = Math.max(counter[t]||0, usedCounters[t]); });
+  return imported;
+}
+
 
 async function renderPage() {
   const page = await S.pdfDoc.getPage(S.page);
@@ -224,10 +366,14 @@ function renderFields() {
     } else {
       const icon = { text:'T', checkbox:'\u2611', select:'\u25be', signature:'\u270E' }[f.type];
       const hint = f.type==='checkbox'?'':(f.placeholder||'');
+      // Pour le texte, la lettre-aperçu est affichée à la taille réelle qu'aura
+      // la police dans le PDF exporté (fontSize en pt PDF * échelle de rendu),
+      // pour que l'admin voie d'avance le rendu final.
+      const iconPx = f.type==='text' ? Math.round((f.fontSize||10) * S.scale) : 14;
       el.innerHTML =
         '<div class="field-inner">'+
           '<span class="field-label">'+esc(f.name)+'</span>'+
-          '<span style="font-size:10px;opacity:.55;margin-right:3px;">'+icon+'</span>'+
+          '<span style="font-size:'+iconPx+'px;line-height:1;opacity:.55;margin-right:3px;font-family:serif;font-weight:700;display:inline-flex;align-items:center;">'+icon+'</span>'+
           '<span style="font-size:10px;opacity:.6;overflow:hidden;white-space:nowrap;flex:1;">'+esc(hint)+'</span>'+
           '<div class="resize-handle" data-act="resize"></div>'+
         '</div>'+
