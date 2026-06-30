@@ -1,17 +1,24 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PDF Modifiables</title>
-<link rel="stylesheet" href="css/styles.css">
-<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-</script>
-</head>
-<body>
-<script src="js/app.js"></script>
-</body>
-</html>
+# PDF Modifiables — Champs PDF, Collège Joliot Curie
+
+Outil web pour transformer un PDF en formulaire remplissable :
+chargement d'un PDF, placement de champs (texte, date, case à cocher,
+liste déroulante, signature) par glisser-déposer, export d'un PDF
+remplissable compatible Acrobat Reader/Pro, Foxit, Chrome et lecteurs mobiles.
+
+## Structure
+
+- `index.html` — structure de la page
+- `css/styles.css` — styles
+- `js/app.js` — logique de l'application (rendu PDF, édition des champs, export)
+
+## Dépendances (CDN)
+
+- [pdf-lib](https://pdf-lib.js.org/) — génération du PDF remplissable
+- [pdf.js](https://mozilla.github.io/pdf.js/) — rendu du PDF dans le navigateur
+
+## Utilisation
+
+1. Ouvrir `index.html` (ou la page hébergée sur GitHub Pages).
+2. Charger un PDF.
+3. Ajouter et positionner les champs.
+4. Exporter le PDF remplissable.

@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   document.getElementById('canvas-area').addEventListener('mousedown', e => {
-    if (e.target.id === 'canvas-area' || e.target.id === 'page-wrap' || e.target.id === 'pdf-canvas') deselect();
+    if (e.target.id === 'canvas-area' || e.target.id === 'page-wrap' || e.target.id === 'pdf-canvas' || e.target.id === 'overlay') deselect();
   });
 
   // Raccourcis clavier copier / coller / dupliquer
@@ -74,6 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function cur() { return S.fields.find(f => f.id === S.sel); }
+
+function esc(s) {
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 // ── LOAD PDF ──────────────────────────────────────────────────────────────
 async function loadPdf(file) {
@@ -179,7 +183,7 @@ function renderFields() {
       // Rendu : label + 3 mini-inputs JJ / MM / AAAA alignés horizontalement
       el.innerHTML =
         '<div class="field-inner" style="padding:0 4px;gap:1px;overflow:visible;">'+
-          '<span class="field-label">'+f.name+'</span>'+
+          '<span class="field-label">'+esc(f.name)+'</span>'+
           '<input class="di dj" maxlength="2" placeholder="jj" '+
             'style="width:22px;'+getDateInputStyle(f)+'">'+
           '<span style="color:#888;font-size:'+(f.fontSize||10)+'pt;line-height:1;user-select:none;">/</span>'+
@@ -222,9 +226,9 @@ function renderFields() {
       const hint = f.type==='checkbox'?'':(f.placeholder||'');
       el.innerHTML =
         '<div class="field-inner">'+
-          '<span class="field-label">'+f.name+'</span>'+
+          '<span class="field-label">'+esc(f.name)+'</span>'+
           '<span style="font-size:10px;opacity:.55;margin-right:3px;">'+icon+'</span>'+
-          '<span style="font-size:10px;opacity:.6;overflow:hidden;white-space:nowrap;flex:1;">'+hint+'</span>'+
+          '<span style="font-size:10px;opacity:.6;overflow:hidden;white-space:nowrap;flex:1;">'+esc(hint)+'</span>'+
           '<div class="resize-handle" data-act="resize"></div>'+
         '</div>'+
         '<div class="delete-btn" data-act="delete" title="Supprimer">'+
@@ -421,7 +425,7 @@ function renderProps() {
     f.options.forEach((o,i) => {
       const row = document.createElement('div');
       row.className = 'opt-item';
-      row.innerHTML = '<input value="'+o.replace(/"/g,'&quot;')+'"><button data-i="'+i+'">✕</button>';
+      row.innerHTML = '<input value="'+esc(o)+'"><button data-i="'+i+'">✕</button>';
       row.querySelector('input').oninput = e => { f.options[i] = e.target.value; };
       row.querySelector('button').onclick = () => { f.options.splice(i,1); renderProps(); };
       list.appendChild(row);
@@ -466,7 +470,7 @@ function pasteField() {
   if (!clipboardField) { notify('Rien à coller. Copie un champ avec Ctrl+C.','error'); return; }
   const c = clipboardField;
   counter[c.type]++;
-  const names = { text:'texte', checkbox:'case', select:'liste', date:'date' };
+  const names = { text:'texte', checkbox:'case', select:'liste', date:'date', signature:'signature' };
   const wrap = document.getElementById('page-wrap');
   pasteOffset += 20;
 
@@ -513,7 +517,7 @@ function undo() {
 /**
  * Configure un TextField exactement comme le GEVA-Sco :
  *
- *  - DA = /Helv <fontSize> Tf 0 g
+ *  - DA = /Helvetica <fontSize> Tf 0 g
  *      → si fontSize > 0 : taille fixe (champ court, 1 ligne)
  *      → si fontSize = 0 : auto-size natif PDF (viewer calcule la meilleure taille)
  *
@@ -525,7 +529,7 @@ function undo() {
  *  Aucun JavaScript requis.
  */
 function setTextFieldFontSize(doc, tf, fontSize) {
-  const daString = `/Helv ${fontSize} Tf 0 g`;
+  const daString = `/Helvetica ${fontSize} Tf 0 g`;
   const daValue = PDFLib.PDFString.of(daString);
 
   // DA sur le widget et sur le champ parent
@@ -639,7 +643,8 @@ async function exportPdf() {
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
           setTextFieldFontSize(doc, tfJ, fs);
           tfJ.setMaxLength(2);
-          try { tfJ.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initJ||'jj')); } catch(e){}
+          try { tfJ.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Jour (JJ)')); } catch(e){}
+          if (/^\d{2}$/.test(initJ)) { try { tfJ.setText(initJ); } catch(e){} }
           if (f.required) tfJ.enableRequired();
           cx += wJ + sepW;
 
@@ -648,7 +653,8 @@ async function exportPdf() {
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
           setTextFieldFontSize(doc, tfM, fs);
           tfM.setMaxLength(2);
-          try { tfM.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initM||'mm')); } catch(e){}
+          try { tfM.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Mois (MM)')); } catch(e){}
+          if (/^\d{2}$/.test(initM)) { try { tfM.setText(initM); } catch(e){} }
           if (f.required) tfM.enableRequired();
           cx += wM + sepW;
 
@@ -657,7 +663,8 @@ async function exportPdf() {
             borderWidth:0.7, borderColor:blue, backgroundColor:bg });
           setTextFieldFontSize(doc, tfA, fs);
           tfA.setMaxLength(4);
-          try { tfA.acroField.dict.set(PDFLib.PDFName.of('V'), PDFLib.PDFString.of(initA||'aaaa')); } catch(e){}
+          try { tfA.acroField.dict.set(PDFLib.PDFName.of('TU'), PDFLib.PDFString.of('Année (AAAA)')); } catch(e){}
+          if (/^\d{4}$/.test(initA)) { try { tfA.setText(initA); } catch(e){} }
           if (f.required) tfA.enableRequired();
 
         } else if (f.type==='checkbox') {
@@ -699,10 +706,14 @@ async function exportPdf() {
     }
 
     // pdf-lib ne renseigne jamais /AcroForm/DR/Font (TODO non résolu dans son
-    // propre code source). Sans ça, la police "/Helv" référencée par chaque /DA
-    // n'est déclarée nulle part au niveau du formulaire — ce que Acrobat valide
-    // strictement (même si chaque widget porte sa propre police en interne).
-    // On l'ajoute donc manuellement pour rester conforme au spec PDF.
+    // propre code source). Sans ça, la police "/Helvetica" référencée par chaque
+    // /DA n'est déclarée nulle part au niveau du formulaire — ce que Acrobat et
+    // certains lecteurs Android (Acrobat Reader, Firefox) valident strictement
+    // à l'ouverture. On utilise volontairement le même nom "/Helvetica" que
+    // celui que pdf-lib utilise lui-même en interne (il régénère parfois
+    // l'apparence d'un widget — ex. après setMaxLength — avec sa propre police
+    // nommée "/Helvetica" lors du save() ; utiliser ce même nom partout évite
+    // toute incohérence widget/champ qui ferait planter ces lecteurs stricts).
     try {
       const afDict = form.acroForm.dict;
       const drRef  = afDict.get(PDFLib.PDFName.of('DR'));
@@ -717,15 +728,15 @@ async function exportPdf() {
         drFont = doc.context.obj({});
         dr.set(PDFLib.PDFName.of('Font'), drFont);
       }
-      if (!drFont.get(PDFLib.PDFName.of('Helv'))) {
+      if (!drFont.get(PDFLib.PDFName.of('Helvetica'))) {
         const helvDict = doc.context.obj({
           Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding',
         });
-        drFont.set(PDFLib.PDFName.of('Helv'), doc.context.register(helvDict));
+        drFont.set(PDFLib.PDFName.of('Helvetica'), doc.context.register(helvDict));
       }
       // Police de secours générique pour le formulaire (certains viewers la lisent)
       if (!afDict.get(PDFLib.PDFName.of('DA'))) {
-        afDict.set(PDFLib.PDFName.of('DA'), PDFLib.PDFString.of('/Helv 10 Tf 0 g'));
+        afDict.set(PDFLib.PDFName.of('DA'), PDFLib.PDFString.of('/Helvetica 10 Tf 0 g'));
       }
     } catch(e) { console.warn('Réparation DR/Font échouée:', e.message); }
 
@@ -768,7 +779,11 @@ async function exportPdf() {
 // ── UI UTILS ────────────────────────────────────────────────────────────────
 let loadEl=null;
 function loading(msg) {
-  if (loadEl) return;
+  if (loadEl) {
+    const p = loadEl.querySelector('p');
+    if (p) p.textContent = msg || '...';
+    return;
+  }
   loadEl = document.createElement('div');
   loadEl.style.cssText='position:fixed;inset:0;background:rgba(255,255,255,.88);display:flex;align-items:center;justify-content:center;z-index:9998;flex-direction:column;gap:12px;';
   loadEl.innerHTML='<div class="spinner"></div><p style="font-size:14px;color:#5F5E5A;">'+(msg||'...')+'</p>';
