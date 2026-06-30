@@ -217,6 +217,7 @@ function importExistingFields(doc) {
       required: g.jj.isRequired ? g.jj.isRequired() : false,
       fontSize: parseFontSize(g.jj), options: [], page: pageIndex+1,
       _dateValue: dateValue,
+      _origNames: [g.jj.getName(), g.mm.getName(), g.aaaa.getName()],
     });
     imported++;
   });
@@ -255,6 +256,7 @@ function importExistingFields(doc) {
       fontSize: type==='checkbox' ? 10 : parseFontSize(f),
       options: options.length ? options : (type==='select' ? ['Option 1','Option 2'] : []),
       page: pageIndex+1,
+      _origNames: [name],
     });
     imported++;
   });
@@ -781,6 +783,22 @@ async function exportPdf() {
     const doc = await PDFDocument.load(S.pdfBytes.slice());
     const form = doc.getForm();
     const pages = doc.getPages();
+
+    // Champs importés depuis ce même PDF (relus via importExistingFields) :
+    // on supprime leur(s) widget(s) PDF d'origine du formulaire avant de les
+    // recréer plus bas. Sans ça, déplacer/redimensionner un champ importé puis
+    // exporter crée un DOUBLON : le widget d'origine reste figé à son ancienne
+    // position pendant qu'un nouveau widget apparaît à la nouvelle position.
+    S.fields.forEach(f => {
+      if (!f._origNames) return;
+      f._origNames.forEach(n => {
+        try {
+          const existing = form.getFieldMaybe ? form.getFieldMaybe(n) : form.getField(n);
+          if (existing) form.removeField(existing);
+        } catch(e) {}
+      });
+    });
+
     // Pré-remplir avec les noms déjà présents dans le PDF source (ex : le PDF
     // chargé est déjà un formulaire exporté précédemment par cet outil).
     // Sans ça, pdf-lib refuse silencieusement de créer un champ "en double"
