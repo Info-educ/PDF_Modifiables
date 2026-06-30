@@ -149,7 +149,7 @@ function addField(type) {
     checkbox: { w:18,  h:18 },
     select:   { w:160, h:24 },
     date:     { w:120, h:22 },
-    signature:{ w:220, h:70 },
+    signature:{ w:220, h:95 },
   };
   const d = defs[type];
   const wrap = document.getElementById('page-wrap');
@@ -157,7 +157,7 @@ function addField(type) {
   const f = {
     id:'f'+Date.now(), type,
     name: names[type]+'_'+counter[type],
-    placeholder: type==='date'?'jj/mm/aaaa':(type==='signature'?'Signature':''),
+    placeholder: type==='date'?'jj/mm/aaaa':(type==='signature'?'Signature :':''),
     x: Math.round((wrap.offsetWidth/2) - d.w/2),
     y: 100,
     w:d.w, h:d.h, required:false,
@@ -699,16 +699,30 @@ async function exportPdf() {
             borderWidth:0.8, borderColor:blue, borderDashArray:[3,2],
             color: bg, opacity:1, borderOpacity:0.9,
           });
-          const baseY = pdfY + Math.max(pdfH*0.18, 6);
+          const capSize = 7;
+          const caption = clean(f.placeholder || 'Signature :');
+          pg.drawText(caption, {
+            x: pdfX+4, y: pdfY+pdfH-capSize-3,
+            size: capSize, font: helv, color: rgb(0.45,0.45,0.45),
+          });
+          // Ligne de signature remontée (au lieu d'être collée en bas) pour
+          // laisser la place aux instructions d'accès en dessous.
+          const baseY = pdfY + pdfH * 0.42;
           pg.drawLine({
             start:{ x:pdfX+4, y:baseY }, end:{ x:pdfX+pdfW-4, y:baseY },
             thickness:0.6, color: rgb(0.6,0.6,0.6),
           });
-          const caption = clean(f.placeholder || 'Signature');
-          const capSize = 7;
-          pg.drawText(caption, {
-            x: pdfX+4, y: pdfY+pdfH-capSize-3,
-            size: capSize, font: helv, color: rgb(0.45,0.45,0.45),
+          // Chemin d'accès à l'outil de signature manuscrite selon le lecteur PDF
+          const instrSize = 6;
+          const instrLines = [
+            'Acrobat Reader : Outils > Remplir et signer',
+            'Apple : icône Marqueur > Signature',
+          ];
+          instrLines.forEach((line, i) => {
+            pg.drawText(clean(line), {
+              x: pdfX+4, y: baseY - 9 - (i*(instrSize+3)),
+              size: instrSize, font: helv, color: rgb(0.55,0.55,0.55),
+            });
           });
         }
       } catch(err) { console.warn('Champ ignoré',name,err.message); }
