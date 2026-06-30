@@ -551,7 +551,7 @@ function addAA(doc, tf, trigger, jsCode) {
     const ctx = doc.context;
     const aaKey = PDFLib.PDFName.of('AA');
     const triggerKey = PDFLib.PDFName.of(trigger);
-    let aaDict = acroField.dict.lookupMaybe(aaKey);
+    let aaDict = acroField.dict.lookup(aaKey);
     if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
     aaDict.set(triggerKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(jsCode) }));
     acroField.dict.set(aaKey, aaDict);
@@ -605,7 +605,7 @@ function addDateFieldAA(doc, tf, maxLen, nextName) {
       const ctx    = doc.context;
       const aaKey  = PDFLib.PDFName.of('AA');
       const tKey   = PDFLib.PDFName.of(trigger);
-      let aaDict   = tf.acroField.dict.lookupMaybe(aaKey);
+      let aaDict   = tf.acroField.dict.lookup(aaKey);
       if (!aaDict || typeof aaDict.set !== 'function') aaDict = ctx.obj({});
       aaDict.set(tKey, ctx.obj({ S: PDFLib.PDFName.of('JavaScript'), JS: PDFLib.PDFString.of(js) }));
       tf.acroField.dict.set(aaKey, aaDict);
@@ -759,7 +759,11 @@ async function exportPdf() {
     const a = document.createElement('a');
     a.href = url; a.download = 'formulaire_modifiable.pdf';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    // Délai long avant révocation : sur mobile (Android/Firefox notamment), le
+    // téléchargement passe par un gestionnaire système asynchrone qui peut
+    // prendre plusieurs secondes à lire le blob. Le révoquer trop tôt (1s avant)
+    // produisait un fichier vide ou tronqué = "PDF corrompu" à l'ouverture.
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
     notify('PDF remplissable exporté ✓','success');
   } catch(e) {
     console.error(e); notify('Erreur export : '+e.message,'error');
