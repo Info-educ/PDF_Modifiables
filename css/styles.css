@@ -60,6 +60,7 @@ header .sub { font-size:12px; color:var(--text-sec); }
 .resize-handle { position:absolute; right:-5px; bottom:-5px; width:11px; height:11px; background:var(--blue); border:1.5px solid #fff; border-radius:2px; cursor:nwse-resize; }
 .delete-btn { position:absolute; top:-9px; right:-9px; width:18px; height:18px; background:var(--danger); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; opacity:0; transition:opacity .15s; }
 .field-el:hover .delete-btn, .field-el.selected .delete-btn { opacity:1; }
+.field-el.field-signature .field-inner { border-style:dashed; background:rgba(55,138,221,.06); }
 
 /* SIDE PANEL */
 .side { background:var(--white); border-left:1px solid var(--border); overflow-y:auto; padding:16px; }

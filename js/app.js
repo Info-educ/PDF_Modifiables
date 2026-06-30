@@ -5,7 +5,9 @@ let S = {
   pdfBytes:null, pdfDoc:null, page:1, total:1, scale:1.5,
   fields:[], sel:null, history:[],
 };
-let counter = { text:0, checkbox:0, select:0, date:0 };
+let counter = { text:0, checkbox:0, select:0, date:0, signature:0 };
+let clipboardField = null;
+let pasteOffset = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
   const fi = document.getElementById('file-input');
@@ -27,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-export').onclick = exportPdf;
   document.getElementById('btn-undo').onclick = undo;
   document.getElementById('btn-del').onclick = () => { if (S.sel) delField(S.sel); };
+  document.getElementById('btn-copy').onclick = copyField;
+  document.getElementById('btn-paste').onclick = pasteField;
   document.getElementById('btn-prev').onclick = () => { if (S.page>1){S.page--; renderPage();} };
   document.getElementById('btn-next').onclick = () => { if (S.page<S.total){S.page++; renderPage();} };
   document.getElementById('add-opt').onclick = () => {
@@ -56,6 +60,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('canvas-area').addEventListener('mousedown', e => {
     if (e.target.id === 'canvas-area' || e.target.id === 'page-wrap' || e.target.id === 'pdf-canvas') deselect();
   });
+
+  // Raccourcis clavier copier / coller / dupliquer
+  document.addEventListener('keydown', e => {
+    const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+    const typing = tag === 'input' || tag === 'select' || tag === 'textarea';
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'c' && !typing) { e.preventDefault(); copyField(); }
+    else if (k === 'v' && !typing) { e.preventDefault(); pasteField(); }
+    else if (k === 'd') { e.preventDefault(); if (!typing) copyField(); pasteField(); }
+  });
 });
 
 function cur() { return S.fields.find(f => f.id === S.sel); }
@@ -70,7 +85,9 @@ async function loadPdf(file) {
     S.pdfDoc = await pdfjsLib.getDocument({ data: S.pdfBytes.slice() }).promise;
     S.total = S.pdfDoc.numPages;
     S.page = 1; S.fields = []; S.sel = null; S.history = [];
-    counter = { text:0, checkbox:0, select:0, date:0 };
+    counter = { text:0, checkbox:0, select:0, date:0, signature:0 };
+    clipboardField = null; pasteOffset = 0;
+    document.getElementById('btn-paste').disabled = true;
 
     document.getElementById('empty').style.display = 'none';
     document.getElementById('page-wrap').style.display = '';
@@ -121,13 +138,14 @@ async function buildThumbs() {
 // ── FIELDS ──────────────────────────────────────────────────────────────────
 function addField(type) {
   counter[type]++;
-  const names = { text:'texte', checkbox:'case', select:'liste', date:'date' };
+  const names = { text:'texte', checkbox:'case', select:'liste', date:'date', signature:'signature' };
   // Tailles par défaut en pixels canvas (scale 1.5)
   const defs = {
     text:     { w:180, h:22 },
     checkbox: { w:18,  h:18 },
     select:   { w:160, h:24 },
     date:     { w:120, h:22 },
+    signature:{ w:220, h:70 },
   };
   const d = defs[type];
   const wrap = document.getElementById('page-wrap');
@@ -135,7 +153,7 @@ function addField(type) {
   const f = {
     id:'f'+Date.now(), type,
     name: names[type]+'_'+counter[type],
-    placeholder: type==='date'?'jj/mm/aaaa':(type==='text'?'':''),
+    placeholder: type==='date'?'jj/mm/aaaa':(type==='signature'?'Signature':''),
     x: Math.round((wrap.offsetWidth/2) - d.w/2),
     y: 100,
     w:d.w, h:d.h, required:false,
@@ -153,7 +171,7 @@ function renderFields() {
   ov.innerHTML = '';
   S.fields.filter(f => f.page===S.page).forEach(f => {
     const el = document.createElement('div');
-    el.className = 'field-el'+(f.id===S.sel?' selected':'');
+    el.className = 'field-el field-'+f.type+(f.id===S.sel?' selected':'');
     el.dataset.id = f.id;
     el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px;`;
 
@@ -200,7 +218,7 @@ function renderFields() {
       });
 
     } else {
-      const icon = { text:'T', checkbox:'\u2611', select:'\u25be' }[f.type];
+      const icon = { text:'T', checkbox:'\u2611', select:'\u25be', signature:'\u270E' }[f.type];
       const hint = f.type==='checkbox'?'':(f.placeholder||'');
       el.innerHTML =
         '<div class="field-inner">'+
@@ -392,8 +410,11 @@ function renderProps() {
   document.getElementById('v-fs').textContent = fs;
   // visibilité panneaux
   document.getElementById('g-placeholder').style.display = f.type==='checkbox'?'none':'';
-  document.getElementById('g-fontsize').style.display = f.type==='checkbox'?'none':'';
+  document.getElementById('g-fontsize').style.display = (f.type==='checkbox'||f.type==='signature')?'none':'';
+  document.getElementById('g-required').style.display = f.type==='signature'?'none':'';
   document.getElementById('g-options').style.display = f.type==='select'?'':'none';
+  const lblPh = document.getElementById('lbl-ph');
+  if (lblPh) lblPh.textContent = f.type==='signature' ? 'Légende (au-dessus de la zone)' : 'Texte indicatif';
   if (f.type==='select') {
     const list = document.getElementById('opts-list');
     list.innerHTML = '';
@@ -419,6 +440,59 @@ function delField(id) {
   S.fields = S.fields.filter(f => f.id!==id);
   if (S.sel===id) S.sel = null;
   renderFields(); renderProps();
+}
+
+// ── COPIER / COLLER ────────────────────────────────────────────────────────
+// Copie toutes les caractéristiques visuelles du champ sélectionné
+// (taille, police, type, requis, options...) sauf la position/valeur.
+function copyField() {
+  const f = cur();
+  if (!f) { notify('Sélectionne d\'abord un champ à copier.','error'); return; }
+  clipboardField = {
+    type: f.type,
+    w: f.w, h: f.h,
+    fontSize: f.fontSize,
+    placeholder: f.placeholder,
+    required: f.required,
+    options: f.options ? f.options.slice() : [],
+    x: f.x, y: f.y,
+  };
+  pasteOffset = 0;
+  document.getElementById('btn-paste').disabled = false;
+  notify('Champ copié ✓','success');
+}
+
+function pasteField() {
+  if (!clipboardField) { notify('Rien à coller. Copie un champ avec Ctrl+C.','error'); return; }
+  const c = clipboardField;
+  counter[c.type]++;
+  const names = { text:'texte', checkbox:'case', select:'liste', date:'date' };
+  const wrap = document.getElementById('page-wrap');
+  pasteOffset += 20;
+
+  let x = c.x + pasteOffset;
+  let y = c.y + pasteOffset;
+  if (wrap) {
+    if (x + c.w > wrap.offsetWidth) x = 20;
+    if (y + c.h > wrap.offsetHeight) y = 20;
+  }
+
+  saveHist();
+  const f = {
+    id: 'f'+Date.now()+Math.floor(Math.random()*1000),
+    type: c.type,
+    name: names[c.type]+'_'+counter[c.type],
+    placeholder: c.placeholder,
+    x, y,
+    w: c.w, h: c.h, required: c.required,
+    fontSize: c.fontSize,
+    options: c.options.slice(),
+    page: S.page,
+  };
+  S.fields.push(f);
+  S.sel = f.id;
+  renderFields(); renderProps();
+  notify('Champ collé ✓','success');
 }
 
 function saveHist() {
@@ -452,13 +526,14 @@ function undo() {
  */
 function setTextFieldFontSize(doc, tf, fontSize) {
   const daString = `/Helv ${fontSize} Tf 0 g`;
+  const daValue = PDFLib.PDFString.of(daString);
 
   // DA sur le widget et sur le champ parent
   const widgets = tf.acroField.getWidgets();
   widgets.forEach(widget => {
-    widget.dict.set(doc.context.obj('DA'), doc.context.obj(daString));
+    widget.dict.set(PDFLib.PDFName.of('DA'), daValue);
   });
-  tf.acroField.dict.set(doc.context.obj('DA'), doc.context.obj(daString));
+  tf.acroField.dict.set(PDFLib.PDFName.of('DA'), daValue);
 
   // Flags : Multiline ON + DoNotScroll ON
   try {
@@ -569,6 +644,7 @@ async function exportPdf() {
     const form = doc.getForm();
     const pages = doc.getPages();
     const used = new Set();
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
 
     const canvas = document.getElementById('pdf-canvas');
 
@@ -650,6 +726,29 @@ async function exportPdf() {
           dd.addOptions(opts); dd.select(opts[0]);
           dd.addToPage(pg, { x:pdfX, y:pdfY, width:pdfW, height:pdfH, borderWidth:0.7, borderColor:blue });
           if (f.required) dd.enableRequired();
+
+        } else if (f.type==='signature') {
+          // Pas de type de champ "dessin" en PDF standard (AcroForm ne connaît que
+          // Tx/Ch/Btn/Sig), et un vrai champ /Sig n'est pas fiable sur tous les viewers.
+          // On dessine donc juste une zone repère : l'utilisateur signe ensuite avec
+          // l'outil natif "Remplir et signer" de son lecteur PDF (fonctionne partout,
+          // y compris sur mobile, sans nécessiter de champ particulier).
+          pg.drawRectangle({
+            x:pdfX, y:pdfY, width:pdfW, height:pdfH,
+            borderWidth:0.8, borderColor:blue, borderDashArray:[3,2],
+            color: bg, opacity:1, borderOpacity:0.9,
+          });
+          const baseY = pdfY + Math.max(pdfH*0.18, 6);
+          pg.drawLine({
+            start:{ x:pdfX+4, y:baseY }, end:{ x:pdfX+pdfW-4, y:baseY },
+            thickness:0.6, color: rgb(0.6,0.6,0.6),
+          });
+          const caption = clean(f.placeholder || 'Signature');
+          const capSize = 7;
+          pg.drawText(caption, {
+            x: pdfX+4, y: pdfY+pdfH-capSize-3,
+            size: capSize, font: helv, color: rgb(0.45,0.45,0.45),
+          });
         }
       } catch(err) { console.warn('Champ ignoré',name,err.message); }
     }
