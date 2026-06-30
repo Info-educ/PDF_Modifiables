@@ -643,7 +643,13 @@ async function exportPdf() {
     const doc = await PDFDocument.load(S.pdfBytes.slice());
     const form = doc.getForm();
     const pages = doc.getPages();
-    const used = new Set();
+    // Pré-remplir avec les noms déjà présents dans le PDF source (ex : le PDF
+    // chargé est déjà un formulaire exporté précédemment par cet outil).
+    // Sans ça, pdf-lib refuse silencieusement de créer un champ "en double"
+    // et le champ correspondant est ignoré à l'export.
+    let existingNames = [];
+    try { existingNames = form.getFields().map(ff => ff.getName()); } catch(e) {}
+    const used = new Set(existingNames);
     const helv = await doc.embedFont(StandardFonts.Helvetica);
 
     const canvas = document.getElementById('pdf-canvas');
@@ -659,9 +665,12 @@ async function exportPdf() {
       const fs   = f.fontSize || 10;
 
       let base = (f.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'')||'champ');
+      // Pour une date, 3 sous-champs sont réellement créés (base_jj/_mm/_aaaa) :
+      // il faut vérifier l'unicité de ces noms-là, pas seulement du nom de base.
+      const namesFor = nm => f.type==='date' ? [nm+'_jj', nm+'_mm', nm+'_aaaa'] : [nm];
       let name = base, n=1;
-      while (used.has(name)) name = base+'_'+(n++);
-      used.add(name);
+      while (namesFor(name).some(x => used.has(x))) name = base+'_'+(n++);
+      namesFor(name).forEach(x => used.add(x));
 
       const blue = rgb(0.22,0.37,0.65);
       const bg   = rgb(0.98,0.98,1);
